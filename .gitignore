@@ -6,3 +6,5 @@ hmi-test-deploy-host.tgz
 hmi-test-deploy-host/
 *.bak.*
 *.restore
+src/car3d.cpp
+src/car3d.h

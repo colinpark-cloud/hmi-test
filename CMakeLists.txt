@@ -5,9 +5,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 
+if(NOT DEFINED OE_QMAKE_PATH_EXTERNAL_HOST_BINS AND DEFINED ENV{OE_QMAKE_PATH_EXTERNAL_HOST_BINS})
+  set(OE_QMAKE_PATH_EXTERNAL_HOST_BINS "$ENV{OE_QMAKE_PATH_EXTERNAL_HOST_BINS}")
+endif()
+
 find_package(Qt5 COMPONENTS Widgets Core Gui OpenGL REQUIRED)
-# Qt3D optional; enable if available in SDK/sysroot
-find_package(Qt5 COMPONENTS 3DCore 3DRender 3DExtras 3DInput 3DLogic 3DQuick QUIET)
 
 add_executable(hmi-test
   src/main.cpp
@@ -29,8 +31,6 @@ add_executable(hmi-test
   src/gltest.h
   src/smartoven.cpp
   src/smartoven.h
-  src/car3d.cpp
-  src/car3d.h
 )
 
 target_include_directories(hmi-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -72,12 +72,11 @@ if(DEFINED SDKTARGETSYSROOT AND SDKTARGETSYSROOT)
     list(APPEND EXTRA_LIBS "${_sdk_libdir}/libEGL.so")
   endif()
 endif()
-# Link Qt3D libraries as well (we've copied runtime libs to target)
 list(APPEND EXTRA_LIBS pthread)
 # Some GLES/EGL implementations require linking libm and libdl as well
 list(APPEND EXTRA_LIBS m dl)
 # Link libraries; ensure EXTRA_LIBS at the end so linker sees dependent DSOs
-target_link_libraries(hmi-test PRIVATE Qt5::Widgets Qt5::Core Qt5::Gui Qt5::OpenGL Qt5::3DCore Qt5::3DRender Qt5::3DExtras Qt5::3DInput Qt5::3DLogic ${EXTRA_LIBS})
+target_link_libraries(hmi-test PRIVATE Qt5::Widgets Qt5::Core Qt5::Gui Qt5::OpenGL ${EXTRA_LIBS})
 
 # install
 install(TARGETS hmi-test DESTINATION bin)
