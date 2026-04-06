@@ -1,0 +1,8 @@
+build/
+build-host/
+build-aarch64/
+hmi-test
+hmi-test-deploy-host.tgz
+hmi-test-deploy-host/
+*.bak.*
+*.restore
