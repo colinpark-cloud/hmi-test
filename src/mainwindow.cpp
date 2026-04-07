@@ -5,23 +5,43 @@
 #include <QFile>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QPainter>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSlider>
 #include <QStandardPaths>
 #include <QTextStream>
+#include <cmath>
+#include <QTimer>
 #include <QTouchEvent>
+#include <QProcess>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QtQml/qqmlengine.h>
 #include <QtQuickWidgets/QQuickWidget>
+#include <QQuaternion>
+#include <QVector3D>
+#include <Qt3DCore/QEntity>
+#include <Qt3DCore/QTransform>
+#include <Qt3DExtras/QCuboidMesh>
+#include <Qt3DExtras/QCylinderMesh>
+#include <Qt3DExtras/QPhongMaterial>
+#include <Qt3DExtras/QSphereMesh>
+#include <Qt3DExtras/QTorusMesh>
+#include <Qt3DExtras/Qt3DWindow>
+#include <Qt3DExtras/QOrbitCameraController>
+#include <Qt3DRender/QCamera>
+#include <Qt3DRender/QDirectionalLight>
+#include <Qt3DRender/QPointLight>
+#include <Qt3DExtras/QForwardRenderer>
 
 #include "calibrator.h"
 #include "displaytest.h"
@@ -30,6 +50,116 @@
 #include "serialtest.h"
 #include "smartoven.h"
 #include "storagetest.h"
+
+class GpuDemoWidget : public QWidget {
+public:
+    explicit GpuDemoWidget(QWidget* parent = nullptr) : QWidget(parent) {
+        auto *view = new Qt3DExtras::Qt3DWindow();
+        view->defaultFrameGraph()->setClearColor(QColor("#050816"));
+        container = QWidget::createWindowContainer(view, this);
+        container->setFocusPolicy(Qt::StrongFocus);
+
+        auto *layout = new QVBoxLayout(this);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->addWidget(container);
+
+        rootEntity = new Qt3DCore::QEntity();
+        view->setRootEntity(rootEntity);
+
+        auto *camera = view->camera();
+        camera->lens()->setPerspectiveProjection(45.0f, 16.0f / 9.0f, 0.1f, 1000.0f);
+        camera->setPosition(QVector3D(0, 0, 28.0f));
+        camera->setViewCenter(QVector3D(0, 0, 0));
+
+        auto *lightEntity = new Qt3DCore::QEntity(rootEntity);
+        auto *light = new Qt3DRender::QPointLight(lightEntity);
+        light->setColor("#ffffff");
+        light->setIntensity(1.5f);
+        auto *lightTransform = new Qt3DCore::QTransform(lightEntity);
+        lightTransform->setTranslation(QVector3D(12, 12, 20));
+        lightEntity->addComponent(light);
+        lightEntity->addComponent(lightTransform);
+
+        auto *dirEntity = new Qt3DCore::QEntity(rootEntity);
+        auto *dir = new Qt3DRender::QDirectionalLight(dirEntity);
+        dir->setWorldDirection(QVector3D(-1, -1, -1));
+        dir->setColor("#8ddcff");
+        dir->setIntensity(1.1f);
+        dirEntity->addComponent(dir);
+
+        auto makeMesh = [&](Qt3DRender::QGeometryRenderer *mesh, const QColor &color, const QVector3D &pos, const QVector3D &scale, const QVector3D &axis, float speed, const QVector3D &orbit = QVector3D()) {
+            auto *entity = new Qt3DCore::QEntity(rootEntity);
+            auto *transform = new Qt3DCore::QTransform(entity);
+            transform->setTranslation(pos);
+            transform->setScale3D(scale);
+            auto *material = new Qt3DExtras::QPhongMaterial(entity);
+            material->setDiffuse(color);
+            material->setAmbient(color.lighter(150));
+            entity->addComponent(mesh);
+            entity->addComponent(transform);
+            entity->addComponent(material);
+            meshes.push_back({transform, axis, speed, orbit, pos});
+        };
+
+        auto *torus = new Qt3DExtras::QTorusMesh();
+        torus->setRadius(7.0f);
+        torus->setMinorRadius(1.0f);
+        torus->setRings(72);
+        torus->setSlices(28);
+        makeMesh(torus, QColor("#00d7ff"), QVector3D(0, 0, 0), QVector3D(1.0f, 1.0f, 1.0f), QVector3D(0, 1, 0), 65.0f);
+
+        auto *sphere = new Qt3DExtras::QSphereMesh();
+        sphere->setRadius(2.4f);
+        sphere->setRings(24);
+        sphere->setSlices(40);
+        makeMesh(sphere, QColor("#ff4fd8"), QVector3D(-7.5f, 3.0f, 0), QVector3D(1.0f, 1.0f, 1.0f), QVector3D(1, 1, 0), 95.0f, QVector3D(8.0f, 0.0f, 0.0f));
+
+        auto *cube = new Qt3DExtras::QCuboidMesh();
+        makeMesh(cube, QColor("#50ff9a"), QVector3D(7.5f, -2.5f, 0), QVector3D(2.0f, 2.0f, 2.0f), QVector3D(0, 0, 1), 130.0f, QVector3D(-8.0f, 0.0f, 0.0f));
+
+        auto *cylinder = new Qt3DExtras::QCylinderMesh();
+        cylinder->setRadius(1.4f);
+        cylinder->setLength(5.0f);
+        cylinder->setRings(24);
+        cylinder->setSlices(28);
+        makeMesh(cylinder, QColor("#ffb74d"), QVector3D(0, 0, 8.5f), QVector3D(1.0f, 1.0f, 1.0f), QVector3D(0, 0, 1), 155.0f, QVector3D(0.0f, 0.0f, 0.0f));
+
+        auto *orbitController = new Qt3DExtras::QOrbitCameraController(rootEntity);
+        orbitController->setCamera(camera);
+        orbitController->setLinearSpeed(25.0f);
+        orbitController->setLookSpeed(140.0f);
+
+        startTimer(16);
+        demoView = view;
+    }
+protected:
+    void timerEvent(QTimerEvent*) override {
+        angle += 1.0f;
+        for (auto &m : meshes) {
+            const QQuaternion base = QQuaternion::fromAxisAndAngle(m.axis, angle * m.speed * 0.016f);
+            const QQuaternion orbit = QQuaternion::fromAxisAndAngle(QVector3D(0,1,0), angle * 0.35f);
+            m.transform->setRotation(orbit * base);
+            if (m.orbit.lengthSquared() > 0.0f) {
+                const float rad = angle * 0.02f;
+                const QVector3D offset(std::cos(rad) * m.orbit.x(), std::sin(rad * 1.3f) * 0.8f * (std::abs(m.orbit.y()) + 2.0f), std::sin(rad * 0.9f) * m.orbit.x());
+                m.transform->setTranslation(m.basePos + offset);
+            }
+        }
+    }
+private:
+    struct MeshState {
+        Qt3DCore::QTransform *transform;
+        QVector3D axis;
+        float speed;
+        QVector3D orbit;
+        QVector3D basePos;
+    };
+    QVector<MeshState> meshes;
+    Qt3DCore::QEntity *rootEntity = nullptr;
+    Qt3DExtras::Qt3DWindow *demoView = nullptr;
+    QWidget *container = nullptr;
+    float angle = 0.0f;
+};
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto logUi = [](const QString& msg) {
@@ -41,124 +171,36 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     };
 
     auto *tabs = new QTabWidget(this);
-    tabs->addTab(new DisplayTest, "Display & Touch");
+
+    QWidget *displayTab = new QWidget;
+    auto *displayLayout = new QVBoxLayout(displayTab);
+    displayLayout->setContentsMargins(0, 0, 0, 0);
+    auto *displayTest = new DisplayTest;
+    displayLayout->addWidget(displayTest);
+    tabs->addTab(displayTab, "Display");
+
+    QWidget *touchTab = new QWidget;
+    auto *touchLayout = new QVBoxLayout(touchTab);
+    touchLayout->setContentsMargins(0, 0, 0, 0);
+    touchLayout->setSpacing(0);
+    auto *tsTestBtn = new QPushButton("ts_test");
+    auto *tsCalBtn = new QPushButton("ts_calibrate");
+    auto *tsTestMtBtn = new QPushButton("ts_test_mt");
+    auto *touchLog = new QPlainTextEdit;
+    touchLog->setReadOnly(true);
+    touchLog->setStyleSheet("background:#0b1020; color:#d8e8ff; font-family:monospace; font-size:12px;");
+    touchLayout->addWidget(tsTestBtn);
+    touchLayout->addWidget(tsCalBtn);
+    touchLayout->addWidget(tsTestMtBtn);
+    touchLayout->addWidget(touchLog, 1);
+    tabs->addTab(touchTab, "Touch");
+
     tabs->addTab(new GPIOTest, "GPIO / Buzzer");
     tabs->addTab(new SerialTest, "Serial (RS232/485)");
     tabs->addTab(new StorageTest, "Storage");
-    tabs->addTab(new PerfTest, "Performance");
     connect(tabs, &QTabWidget::currentChanged, this, [=](int index) {
         logUi(QString("tab_changed:%1:%2").arg(index).arg(tabs->tabText(index)));
     });
-
-    // Qt-provided style sample tab: simple widgets demo instead of the old 3D page.
-    auto *sampleTab = new QWidget;
-    auto *sampleLayout = new QVBoxLayout(sampleTab);
-    sampleLayout->setContentsMargins(16, 16, 16, 16);
-    sampleLayout->setSpacing(10);
-
-    auto *title = new QLabel("Qt Widgets Sample");
-    title->setStyleSheet("font-size:20px; font-weight:700;");
-    auto *desc = new QLabel("A small Qt Widgets demo page with controls, progress, and a live preview panel.");
-    desc->setWordWrap(true);
-    desc->setStyleSheet("color:#b0b0b0; font-size:16px;");
-
-    auto *preview = new QFrame;
-    preview->setMinimumHeight(180);
-    preview->setStyleSheet("QFrame { background:#263238; border:2px solid #455a64; border-radius:14px; }");
-    auto *previewLayout = new QVBoxLayout(preview);
-    previewLayout->setContentsMargins(16, 16, 16, 16);
-    previewLayout->setSpacing(8);
-
-    auto *sampleLabel = new QLabel("Hello from Qt");
-    sampleLabel->setAlignment(Qt::AlignCenter);
-    sampleLabel->setStyleSheet("color:white; font-size:22px; font-weight:700;");
-    auto *sampleValue = new QLabel("Value: 35");
-    sampleValue->setAlignment(Qt::AlignCenter);
-    sampleValue->setStyleSheet("color:#e0e0e0; font-size:13px;");
-    auto *meter = new QProgressBar;
-    meter->setRange(0, 100);
-    meter->setValue(35);
-    meter->setTextVisible(true);
-    meter->setFormat("Progress: %p%");
-    meter->setStyleSheet("QProgressBar { height: 18px; color: white; border: 1px solid #90a4ae; border-radius: 6px; background: rgba(255,255,255,0.08); } QProgressBar::chunk { background: #00acc1; border-radius: 5px; }");
-    previewLayout->addStretch();
-    previewLayout->addWidget(sampleLabel);
-    previewLayout->addWidget(sampleValue);
-    previewLayout->addWidget(meter);
-    previewLayout->addStretch();
-
-    auto *controls = new QHBoxLayout;
-    controls->setSpacing(8);
-    auto *valueLabel = new QLabel("35");
-    valueLabel->setMinimumWidth(36);
-    valueLabel->setAlignment(Qt::AlignCenter);
-    valueLabel->setStyleSheet("font-size:14px; font-weight:700;");
-    auto *slider = new QSlider(Qt::Horizontal);
-    slider->setRange(0, 100);
-    slider->setValue(35);
-    auto *modeBox = new QComboBox;
-    modeBox->addItems({"Blue", "Purple", "Green", "Orange"});
-    modeBox->setFixedHeight(28);
-    auto *pulseBtn = new QPushButton("Pulse");
-    auto *resetBtn = new QPushButton("Reset");
-    controls->addWidget(new QLabel("Value"));
-    controls->addWidget(valueLabel);
-    controls->addWidget(slider, 1);
-    controls->addWidget(modeBox);
-    controls->addWidget(pulseBtn);
-    controls->addWidget(resetBtn);
-
-    auto *sampleList = new QListWidget;
-    sampleList->addItems({"Widgets", "Layouts", "Signals", "Styles", "Animations"});
-    sampleList->setMinimumHeight(72);
-
-    sampleLayout->addWidget(title);
-    sampleLayout->addWidget(desc);
-    sampleLayout->addWidget(preview);
-    sampleLayout->addLayout(controls);
-    sampleLayout->addWidget(sampleList);
-
-    const QVector<QColor> accents = {
-        QColor("#1e88e5"),
-        QColor("#8e24aa"),
-        QColor("#43a047"),
-        QColor("#fb8c00")
-    };
-
-    auto applyTheme = [=](int value) {
-        const QColor accent = accents.value(modeBox->currentIndex(), accents.front());
-        const QColor bg = accent.darker(170);
-        const QColor border = accent.lighter(150);
-        preview->setStyleSheet(QString("QFrame { background:%1; border:2px solid %2; border-radius:18px; }")
-                                  .arg(bg.name(), border.name()));
-        sampleLabel->setText(QString("Qt Widgets Sample — %1").arg(value));
-        sampleValue->setText(QString("Value: %1").arg(value));
-        valueLabel->setText(QString::number(value));
-        meter->setValue(value);
-        meter->setStyleSheet(QString("QProgressBar { height: 26px; color: white; border: 1px solid %1; border-radius: 8px; background: rgba(255,255,255,0.08); } QProgressBar::chunk { background: %2; border-radius: 6px; }")
-                                 .arg(border.name(), accent.name()));
-    };
-
-    connect(slider, &QSlider::valueChanged, this, [=](int value) {
-        logUi(QString("slider_changed:%1").arg(value));
-        applyTheme(value);
-    });
-    connect(modeBox, qOverload<int>(&QComboBox::currentIndexChanged), this, [=](int index) {
-        logUi(QString("mode_changed:%1:%2").arg(index).arg(modeBox->currentText()));
-        applyTheme(slider->value());
-    });
-    connect(resetBtn, &QPushButton::clicked, this, [=]() {
-        logUi("reset_clicked");
-        modeBox->setCurrentIndex(0);
-        slider->setValue(35);
-    });
-    connect(pulseBtn, &QPushButton::clicked, this, [=]() {
-        logUi("pulse_clicked");
-        slider->setValue((slider->value() + 25) % 101);
-    });
-    applyTheme(slider->value());
-
-    tabs->addTab(sampleTab, "Qt Sample");
 
     QWidget *quickTab = new QWidget;
     auto *quickLayout = new QVBoxLayout(quickTab);
@@ -171,10 +213,132 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     quickLayout->addWidget(quickView);
     tabs->addTab(quickTab, "Qt Quick Demo");
 
+    auto appendTouchLog = [touchLog](const QString& line) {
+        touchLog->appendPlainText(QDateTime::currentDateTime().toString(Qt::ISODate) + " " + line);
+    };
+    auto runTool = [=](const QString& tool) {
+        appendTouchLog(QString("launch requested: %1").arg(tool));
+        QString path = QStandardPaths::findExecutable(tool);
+        if (path.isEmpty()) {
+            path = QString("/usr/bin/%1").arg(tool);
+        }
+        if (!QFile::exists(path)) {
+            appendTouchLog(QString("not found: %1").arg(path));
+            QMessageBox::warning(this, tool, QString("%1 not found on system.").arg(path));
+            return;
+        }
+        QStringList args;
+        args << "-s" << "-w" << "--" << "/bin/sh" << "-lc"
+             << QString("export TSLIB_TSDEVICE=/dev/input/event1; export TSLIB_FBDEVICE=/dev/fb0; exec %1").arg(path);
+        appendTouchLog(QString("starting full-screen VT with tslib env: %1").arg(path));
+        bool ok = QProcess::startDetached("/usr/bin/openvt", args);
+        if (!ok) {
+            appendTouchLog("openvt failed");
+            QMessageBox::warning(this, tool, QString("Failed to launch fullscreen VT for %1").arg(path));
+        } else {
+            appendTouchLog("started on VT");
+        }
+    };
+    connect(tsTestBtn, &QPushButton::clicked, this, [=]() { runTool("ts_test"); });
+    connect(tsCalBtn, &QPushButton::clicked, this, [=]() { runTool("ts_calibrate"); });
+    connect(tsTestMtBtn, &QPushButton::clicked, this, [=]() { runTool("ts_test_mt"); });
+
+    QWidget *gpuTab = new QWidget;
+    auto *gpuLayout = new QVBoxLayout(gpuTab);
+    gpuLayout->setContentsMargins(0, 0, 0, 0);
+    gpuLayout->setSpacing(0);
+    auto *gpuView = new GpuDemoWidget;
+    gpuView->setMinimumHeight(520);
+    gpuLayout->addWidget(gpuView, 1);
+    tabs->addTab(gpuTab, "3D");
+
+    QWidget *glmarkTab = new QWidget;
+    auto *glmarkLayout = new QVBoxLayout(glmarkTab);
+    glmarkLayout->setContentsMargins(16, 16, 16, 16);
+    glmarkLayout->setSpacing(10);
+    auto *glmarkTitle = new QLabel("glmark2");
+    glmarkTitle->setStyleSheet("font-size:22px; font-weight:700;");
+    auto *glmarkDesc = new QLabel("External benchmark runner with quick/full presets. It runs as a separate window/process.");
+    glmarkDesc->setWordWrap(true);
+    glmarkDesc->setStyleSheet("color:#b0b0b0; font-size:14px;");
+    auto *glmarkQuickBtn = new QPushButton("Quick Run");
+    glmarkQuickBtn->setFixedHeight(54);
+    glmarkQuickBtn->setStyleSheet("font-size:18px; background:#1565c0; color:white; border-radius:8px;");
+    auto *glmarkFullBtn = new QPushButton("Full Run");
+    glmarkFullBtn->setFixedHeight(54);
+    glmarkFullBtn->setStyleSheet("font-size:18px; background:#8e24aa; color:white; border-radius:8px;");
+    auto *glmarkLog = new QPlainTextEdit;
+    glmarkLog->setReadOnly(true);
+    glmarkLog->setPlaceholderText("Launch logs will appear here...");
+    glmarkLog->setStyleSheet("background:#0b1020; color:#d8e8ff; font-family:monospace; font-size:12px;");
+    glmarkLayout->addWidget(glmarkTitle);
+    glmarkLayout->addWidget(glmarkDesc);
+    glmarkLayout->addWidget(glmarkQuickBtn);
+    glmarkLayout->addWidget(glmarkFullBtn);
+    glmarkLayout->addWidget(glmarkLog, 1);
+    tabs->addTab(glmarkTab, "glmark2");
+
+    auto appendGlmarkLog = [glmarkLog](const QString& line) {
+        glmarkLog->appendPlainText(QDateTime::currentDateTime().toString(Qt::ISODate) + " " + line);
+    };
+    auto startGlmark = [=](bool quick) {
+        appendGlmarkLog(quick ? "launch requested: quick" : "launch requested: full");
+        if (m_demoProc && m_demoProc->state() != QProcess::NotRunning) {
+            appendGlmarkLog("already running");
+            return;
+        }
+        QString exe;
+        const QStringList candidates = {
+            "/root/glmark2",
+            "/usr/bin/glmark2-es2-wayland",
+            "/usr/bin/glmark2-es2",
+            "/usr/bin/glmark2",
+            "/usr/local/bin/glmark2",
+            "/mnt/data/home/user/glmark2/glmark2"
+        };
+        for (const auto& c : candidates) {
+            if (QFile::exists(c) && (QFile::permissions(c) & QFileDevice::ExeUser)) { exe = c; break; }
+        }
+        if (exe.isEmpty()) {
+            appendGlmarkLog("glmark2 not found");
+            QMessageBox::warning(this, "glmark2", "glmark2 not found on system.");
+            return;
+        }
+        if (!m_demoProc) m_demoProc = new QProcess(this);
+        m_demoProc->setProcessChannelMode(QProcess::MergedChannels);
+        connect(m_demoProc, &QProcess::readyReadStandardOutput, this, [=]() {
+            appendGlmarkLog(QString::fromLocal8Bit(m_demoProc->readAllStandardOutput()));
+        });
+        connect(m_demoProc, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), this, [=](int code, QProcess::ExitStatus st) {
+            appendGlmarkLog(QString("glmark2 finished code=%1 status=%2").arg(code).arg(st == QProcess::NormalExit ? "normal" : "crash"));
+        });
+        QStringList args;
+        if (quick) {
+            args << "--annotate" << "-b" << "build:duration=1.0" << "-b" << "texture:duration=1.0" << "-b" << "shading:duration=1.0";
+            appendGlmarkLog(QString("starting %1 quick bench").arg(exe));
+        } else {
+            args << "--annotate" << "--size" << "800x600";
+            appendGlmarkLog(QString("starting %1 full bench").arg(exe));
+        }
+        m_demoProc->start(exe, args);
+        if (!m_demoProc->waitForStarted(2500)) {
+            appendGlmarkLog("failed to start");
+            QMessageBox::warning(this, "glmark2", QString("Failed to start %1").arg(exe));
+            delete m_demoProc;
+            m_demoProc = nullptr;
+            return;
+        }
+        appendGlmarkLog("started");
+    };
+    connect(glmarkQuickBtn, &QPushButton::clicked, this, [=]() { startGlmark(true); });
+    connect(glmarkFullBtn, &QPushButton::clicked, this, [=]() { startGlmark(false); });
+
     tabs->setStyleSheet("QTabBar::tab{ min-width:120px; min-height:32px; background:#444; color:white; font-weight:bold; } QTabWidget::pane{ border: 2px solid #666; }");
 
     auto *central = new QWidget(this);
     auto *centralLayout = new QVBoxLayout(central);
+    centralLayout->setContentsMargins(0, 0, 0, 0);
+    centralLayout->setSpacing(0);
     centralLayout->addWidget(tabs);
     setCentralWidget(central);
 
@@ -196,26 +360,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     // load calibration if present
     loadCalibration();
-
-    // Put calibration shortcut in the Display tab too.
-    auto *calib = new QPushButton("Calibrate Touch");
-    calib->setFixedSize(140, 36);
-    calib->setStyleSheet("font-size:13px; background:#1565c0; color:white; border-radius:6px;");
-    if (auto *wdg = tabs->widget(0)) {
-        if (wdg->layout()) {
-            wdg->layout()->addWidget(calib);
-        }
-    }
-    connect(calib, &QPushButton::clicked, this, [=]() {
-        logUi("calibrate_clicked");
-        Calibrator dlg(this);
-        if (dlg.exec() == QDialog::Accepted && dlg.isValid()) {
-            m_calib = dlg.transform();
-            logUi("calibrate_applied");
-        } else {
-            logUi("calibrate_cancelled_or_invalid");
-        }
-    });
 
     // log tab info for remote diagnostics
     logUi(QString("tab_count:%1").arg(tabs->count()));

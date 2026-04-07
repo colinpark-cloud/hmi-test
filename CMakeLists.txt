@@ -9,7 +9,7 @@ if(NOT DEFINED OE_QMAKE_PATH_EXTERNAL_HOST_BINS AND DEFINED ENV{OE_QMAKE_PATH_EX
   set(OE_QMAKE_PATH_EXTERNAL_HOST_BINS "$ENV{OE_QMAKE_PATH_EXTERNAL_HOST_BINS}")
 endif()
 
-find_package(Qt5 COMPONENTS Widgets Core Gui OpenGL REQUIRED)
+find_package(Qt5 COMPONENTS Widgets Core Gui OpenGL Quick Qml QuickWidgets 3DCore 3DRender 3DInput 3DExtras REQUIRED)
 
 add_executable(hmi-test
   src/main.cpp
@@ -76,7 +76,7 @@ list(APPEND EXTRA_LIBS pthread)
 # Some GLES/EGL implementations require linking libm and libdl as well
 list(APPEND EXTRA_LIBS m dl)
 # Link libraries; ensure EXTRA_LIBS at the end so linker sees dependent DSOs
-target_link_libraries(hmi-test PRIVATE Qt5::Widgets Qt5::Core Qt5::Gui Qt5::OpenGL ${EXTRA_LIBS})
+target_link_libraries(hmi-test PRIVATE Qt5::Widgets Qt5::Core Qt5::Gui Qt5::OpenGL Qt5::Quick Qt5::Qml Qt5::QuickWidgets Qt5::3DCore Qt5::3DRender Qt5::3DInput Qt5::3DExtras ${EXTRA_LIBS})
 
 # install
 install(TARGETS hmi-test DESTINATION bin)

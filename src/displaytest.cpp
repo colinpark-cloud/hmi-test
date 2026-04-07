@@ -17,24 +17,18 @@ private:
 
 DisplayTest::DisplayTest(QWidget* parent): QWidget(parent){
     auto layout = new QVBoxLayout(this);
-    layout->addWidget(new QLabel("Display & Touch Test"));
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
     cw = new ColorWidget;
-    cw->setMinimumSize(800,360);
-    layout->addWidget(cw);
+    cw->setMinimumSize(960,540);
+    layout->addWidget(cw, 1);
     auto btn = new QPushButton("Cycle Colors");
+    btn->setFixedHeight(44);
     layout->addWidget(btn);
     connect(btn,&QPushButton::clicked,this,&DisplayTest::cycleColors);
 }
 
 void DisplayTest::mousePressEvent(QMouseEvent* ev){
-    // apply calibration if present, then forward to child widgets
-    QPointF p = ev->localPos();
-    if(!m_calib.isIdentity()){
-        QPointF tp = m_calib.map(p);
-        QMouseEvent newEv(ev->type(), tp.toPoint(), ev->windowPos(), ev->screenPos(), ev->button(), ev->buttons(), ev->modifiers());
-        QWidget::mousePressEvent(&newEv);
-        return;
-    }
     QWidget::mousePressEvent(ev);
 }
 
