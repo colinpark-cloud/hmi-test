@@ -13,9 +13,14 @@
 #include <QVBoxLayout>
 #include <cmath>
 #include <cstring>
+#include <malloc.h>
 
 static QString onStyle() {
     return "font-size:16px; font-weight:700; background:#1f7a5a; color:white; border:1px solid #166648; border-radius:12px; padding:10px 14px;";
+}
+
+static QString selectedStyle() {
+    return "font-size:16px; font-weight:700; background:#22c55e; color:white; border:1px solid #16a34a; border-radius:12px; padding:10px 14px;";
 }
 
 static QString offStyle() {
@@ -79,6 +84,20 @@ static double readCpuUsage() {
 }
 
 static double readRamUsageRatio() {
+    const double total = readMemTotalKb();
+    const double avail = readMemAvailableKb();
+    if (total <= 0.0) return 0.0;
+    return qBound(0.0, (total - avail) / total, 1.0);
+}
+
+static double readCpuTempC() {
+    const QStringList zones = {"/sys/class/thermal/thermal_zone0/temp", "/sys/class/thermal/thermal_zone1/temp"};
+    for (const auto& path : zones) {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+        const double raw = QString::fromUtf8(f.readAll()).trimmed().toDouble();
+        if (raw > 0.0) return raw / 1000.0;
+    }
     return 0.0;
 }
 
@@ -102,7 +121,7 @@ protected:
         p.setPen(QPen(QColor("#d8e0ea"), 1));
         p.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 14, 14);
 
-        QRectF inner = rect().adjusted(16, 28, -16, -16);
+        QRectF inner = rect().adjusted(28, 28, -16, -24);
         p.setPen(QPen(QColor("#eef2f7"), 1));
         for (int i = 1; i < 4; ++i) {
             const qreal y = inner.top() + inner.height() * i / 4.0;
@@ -124,6 +143,15 @@ protected:
         f.setPointSize(10);
         p.setFont(f);
         p.drawText(QRectF(16, 6, width() - 32, 20), Qt::AlignRight | Qt::AlignVCenter, QString::number((int)std::round(m_current * 100.0)) + "%");
+
+        p.setPen(QColor("#5f6b7a"));
+        QFont scaleFont = p.font();
+        scaleFont.setPointSize(9);
+        scaleFont.setBold(false);
+        p.setFont(scaleFont);
+        p.drawText(QRectF(0, inner.top() - 2, 24, 12), Qt::AlignRight | Qt::AlignVCenter, "100");
+        p.drawText(QRectF(0, inner.top() + inner.height() / 2.0 - 6, 24, 12), Qt::AlignRight | Qt::AlignVCenter, "50");
+        p.drawText(QRectF(0, inner.bottom() - 6, 24, 12), Qt::AlignRight | Qt::AlignVCenter, "0");
 
         if (m_history.size() < 2) return;
         QPainterPath path;
@@ -174,22 +202,27 @@ PerfTest::PerfTest(QWidget* parent) : QWidget(parent) {
     cpuBtn1 = new QPushButton("thread 1");
     cpuBtn2 = new QPushButton("thread 2");
     cpuBtn3 = new QPushButton("thread 3");
+    cpuBtn4 = new QPushButton("thread 4");
     ramLoadBtn = new QPushButton("RAM Load");
     ramBtn256 = new QPushButton("256 MB");
     ramBtn512 = new QPushButton("512 MB");
     ramBtn1024 = new QPushButton("1 GB");
-    for (auto *b : {cpuLoadBtn, cpuBtn1, cpuBtn2, cpuBtn3, ramLoadBtn, ramBtn256, ramBtn512}) b->setStyleSheet(offStyle());
-    ramBtn1024->setStyleSheet("font-size:16px; font-weight:700; background:#d97706; color:white; border:1px solid #f59e0b; border-radius:12px; padding:10px 14px;");
+    ramBtn1250 = new QPushButton("1.25 GB");
+    for (auto *b : {cpuLoadBtn, cpuBtn1, cpuBtn2, cpuBtn3, cpuBtn4, ramLoadBtn, ramBtn256, ramBtn512, ramBtn1024}) b->setStyleSheet(offStyle());
+    ramBtn1024->setStyleSheet(offStyle());
+    ramBtn1250->setStyleSheet("font-size:16px; font-weight:700; background:#b31b1b; color:white; border:1px solid #dc2626; border-radius:12px; padding:10px 14px;");
 
     cpuTargetThreads = 3;
     cpuDetail = new QLabel("3 worker threads");
     ramDetail = new QLabel("0 MB allocated");
+    cpuTemp = new QLabel("0°C");
     cpuCurrent = new QLabel("0%");
     ramCurrent = new QLabel("0%");
-    for (auto *l : {cpuDetail, ramDetail, cpuCurrent, ramCurrent}) {
+    for (auto *l : {cpuTemp, cpuDetail, ramDetail, cpuCurrent, ramCurrent}) {
         l->setAlignment(Qt::AlignCenter);
         l->setStyleSheet("color:#5f6b7a; font-size:12px;");
     }
+    cpuTemp->setStyleSheet("font-size:26px; font-weight:800; color:#b31b1b;");
     cpuCurrent->setStyleSheet("font-size:26px; font-weight:800; color:#17304c;");
     ramCurrent->setStyleSheet("font-size:26px; font-weight:800; color:#17304c;");
 
@@ -211,7 +244,9 @@ PerfTest::PerfTest(QWidget* parent) : QWidget(parent) {
     cpuControlLayout->addWidget(cpuBtn1);
     cpuControlLayout->addWidget(cpuBtn2);
     cpuControlLayout->addWidget(cpuBtn3);
+    cpuControlLayout->addWidget(cpuBtn4);
     cpuControlLayout->addWidget(cpuCurrent);
+    cpuControlLayout->addWidget(cpuTemp);
     cpuControlLayout->addWidget(cpuDetail, 1);
 
     auto *ramGraphCard = new QWidget;
@@ -229,6 +264,7 @@ PerfTest::PerfTest(QWidget* parent) : QWidget(parent) {
     ramControlLayout->addWidget(ramBtn256);
     ramControlLayout->addWidget(ramBtn512);
     ramControlLayout->addWidget(ramBtn1024);
+    ramControlLayout->addWidget(ramBtn1250);
     ramControlLayout->addWidget(ramCurrent);
     ramControlLayout->addWidget(ramDetail, 1);
 
@@ -255,6 +291,7 @@ PerfTest::PerfTest(QWidget* parent) : QWidget(parent) {
     connect(cpuBtn1, &QPushButton::clicked, this, [this]() { cpuTargetThreads = 1; if (cpuRunning) stopCpuLoad(); startCpuLoad(); });
     connect(cpuBtn2, &QPushButton::clicked, this, [this]() { cpuTargetThreads = 2; if (cpuRunning) stopCpuLoad(); startCpuLoad(); });
     connect(cpuBtn3, &QPushButton::clicked, this, [this]() { cpuTargetThreads = 3; if (cpuRunning) stopCpuLoad(); startCpuLoad(); });
+    connect(cpuBtn4, &QPushButton::clicked, this, [this]() { cpuTargetThreads = 4; if (cpuRunning) stopCpuLoad(); startCpuLoad(); });
     connect(ramLoadBtn, &QPushButton::clicked, this, [this]() {
         if (ramRunning) stopRamLoad();
         else startRamLoad();
@@ -262,6 +299,7 @@ PerfTest::PerfTest(QWidget* parent) : QWidget(parent) {
     connect(ramBtn256, &QPushButton::clicked, this, [this]() { ramTargetBytes = 256ull * 1024ull * 1024ull; if (ramRunning) stopRamLoad(); startRamLoad(); });
     connect(ramBtn512, &QPushButton::clicked, this, [this]() { ramTargetBytes = 512ull * 1024ull * 1024ull; if (ramRunning) stopRamLoad(); startRamLoad(); });
     connect(ramBtn1024, &QPushButton::clicked, this, [this]() { ramTargetBytes = 1024ull * 1024ull * 1024ull; if (ramRunning) stopRamLoad(); startRamLoad(); });
+    connect(ramBtn1250, &QPushButton::clicked, this, [this]() { ramTargetBytes = 1280ull * 1024ull * 1024ull; if (ramRunning) stopRamLoad(); startRamLoad(); });
 }
 
 PerfTest::~PerfTest() {
@@ -273,7 +311,7 @@ void PerfTest::startCpuLoad() {
     if (cpuRunning) return;
     cpuRunning = true;
     cpuStop = false;
-    const int threads = qBound(1, cpuTargetThreads, 3);
+    const int threads = qBound(1, cpuTargetThreads, 4);
     cpuThreadCount = threads;
     cpuThreads.clear();
     cpuThreads.reserve(threads);
@@ -320,6 +358,7 @@ void PerfTest::startRamLoad() {
 void PerfTest::stopRamLoad() {
     if (!ramRunning) return;
     ramBlocks.clear();
+    malloc_trim(0);
     ramRunning = false;
     ramAllocatedMb = 0;
     refreshButtons();
@@ -332,16 +371,19 @@ void PerfTest::stopAllLoads() {
 
 void PerfTest::refreshButtons() {
     if (cpuLoadBtn) cpuLoadBtn->setText(cpuRunning ? "CPU Load: ON" : "CPU Load");
-    if (cpuLoadBtn) cpuLoadBtn->setStyleSheet(cpuRunning ? onStyle() : offStyle());
-    if (cpuBtn1) cpuBtn1->setStyleSheet(cpuRunning && cpuTargetThreads == 1 ? onStyle() : offStyle());
-    if (cpuBtn2) cpuBtn2->setStyleSheet(cpuRunning && cpuTargetThreads == 2 ? onStyle() : offStyle());
-    if (cpuBtn3) cpuBtn3->setStyleSheet(cpuRunning && cpuTargetThreads == 3 ? onStyle() : offStyle());
+    if (cpuLoadBtn) cpuLoadBtn->setStyleSheet(cpuRunning ? selectedStyle() : offStyle());
+    if (cpuBtn1) cpuBtn1->setStyleSheet(cpuRunning && cpuTargetThreads == 1 ? selectedStyle() : offStyle());
+    if (cpuBtn2) cpuBtn2->setStyleSheet(cpuRunning && cpuTargetThreads == 2 ? selectedStyle() : offStyle());
+    if (cpuBtn3) cpuBtn3->setStyleSheet(cpuRunning && cpuTargetThreads == 3 ? selectedStyle() : offStyle());
+    if (cpuBtn4) cpuBtn4->setStyleSheet(cpuRunning && cpuTargetThreads == 4 ? "font-size:16px; font-weight:700; background:#ef4444; color:white; border:1px solid #dc2626; border-radius:12px; padding:10px 14px;" : "font-size:16px; font-weight:700; background:#991b1b; color:white; border:1px solid #dc2626; border-radius:12px; padding:10px 14px;");
     if (ramLoadBtn) ramLoadBtn->setText(ramRunning ? "RAM Load: ON" : "RAM Load");
-    if (ramLoadBtn) ramLoadBtn->setStyleSheet(ramRunning ? onStyle() : offStyle());
-    if (ramBtn256) ramBtn256->setStyleSheet(ramRunning && ramTargetBytes == 256ull * 1024ull * 1024ull ? onStyle() : offStyle());
-    if (ramBtn512) ramBtn512->setStyleSheet(ramRunning && ramTargetBytes == 512ull * 1024ull * 1024ull ? onStyle() : offStyle());
-    if (ramBtn1024) ramBtn1024->setStyleSheet(ramRunning && ramTargetBytes == 1024ull * 1024ull * 1024ull ? onStyle() : "font-size:16px; font-weight:700; background:#d97706; color:white; border:1px solid #f59e0b; border-radius:12px; padding:10px 14px;");
+    if (ramLoadBtn) ramLoadBtn->setStyleSheet(ramRunning ? selectedStyle() : offStyle());
+    if (ramBtn256) ramBtn256->setStyleSheet(ramRunning && ramTargetBytes == 256ull * 1024ull * 1024ull ? selectedStyle() : offStyle());
+    if (ramBtn512) ramBtn512->setStyleSheet(ramRunning && ramTargetBytes == 512ull * 1024ull * 1024ull ? selectedStyle() : offStyle());
+    if (ramBtn1024) ramBtn1024->setStyleSheet(ramRunning && ramTargetBytes == 1024ull * 1024ull * 1024ull ? selectedStyle() : offStyle());
+    if (ramBtn1250) ramBtn1250->setStyleSheet(ramRunning && ramTargetBytes == 1280ull * 1024ull * 1024ull ? "font-size:16px; font-weight:700; background:#ef4444; color:white; border:1px solid #dc2626; border-radius:12px; padding:10px 14px;" : "font-size:16px; font-weight:700; background:#991b1b; color:white; border:1px solid #dc2626; border-radius:12px; padding:10px 14px;");
     if (cpuDetail) cpuDetail->setText(cpuRunning ? QString::number(cpuThreadCount) + " worker threads" : "0 worker threads");
+    if (cpuTemp) cpuTemp->setText(QString::number((int)std::round(readCpuTempC())) + "°C");
     if (ramDetail) ramDetail->setText(ramRunning ? QString::number(ramAllocatedMb) + " MB allocated" : "0 MB allocated");
 }
 
@@ -355,5 +397,6 @@ void PerfTest::updateUsage() {
     if (cpuGraph) cpuGraph->setHistory(cpuHistory, cpuUsage, cpuRunning ? QString("%1 worker threads").arg(cpuThreadCount) : QString("0 worker threads"));
     if (ramGraph) ramGraph->setHistory(ramHistory, ramUsage, ramRunning ? QString("%1 / 2048 MB").arg(ramAllocatedMb) : QString("0 / 2048 MB"));
     if (cpuCurrent) cpuCurrent->setText(QString::number((int)std::round(cpuUsage * 100.0)) + "%");
+    if (cpuTemp) cpuTemp->setText(QString::number((int)std::round(readCpuTempC())) + "°C");
     if (ramCurrent) ramCurrent->setText(QString::number((int)std::round(ramUsage * 100.0)) + "%");
 }

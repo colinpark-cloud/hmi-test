@@ -31,10 +31,13 @@ private:
     QPushButton* cpuBtn1 = nullptr;
     QPushButton* cpuBtn2 = nullptr;
     QPushButton* cpuBtn3 = nullptr;
+    QPushButton* cpuBtn4 = nullptr;
     QPushButton* ramLoadBtn = nullptr;
     QPushButton* ramBtn256 = nullptr;
     QPushButton* ramBtn512 = nullptr;
     QPushButton* ramBtn1024 = nullptr;
+    QPushButton* ramBtn1250 = nullptr;
+    QLabel* cpuTemp = nullptr;
     QLabel* cpuDetail = nullptr;
     QLabel* ramDetail = nullptr;
     QLabel* cpuCurrent = nullptr;
