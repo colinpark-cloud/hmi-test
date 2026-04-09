@@ -17,4 +17,6 @@ private:
     QTransform m_calib;
     bool loadCalibration();
     QProcess* m_demoProc = nullptr;
+    int m_returnTab = 1;
+    bool m_displayWasFullScreen = false;
 };

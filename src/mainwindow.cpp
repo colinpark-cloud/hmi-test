@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QGridLayout>
 #include <QPainter>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -50,6 +51,7 @@
 #include "serialtest.h"
 #include "smartoven.h"
 #include "storagetest.h"
+#include "commtest.h"
 
 class GpuDemoWidget : public QWidget {
 public:
@@ -171,35 +173,77 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     };
 
     auto *tabs = new QTabWidget(this);
+    tabs->setDocumentMode(true);
+    tabs->setUsesScrollButtons(false);
+    tabs->tabBar()->setExpanding(false);
 
     QWidget *displayTab = new QWidget;
     auto *displayLayout = new QVBoxLayout(displayTab);
     displayLayout->setContentsMargins(0, 0, 0, 0);
     auto *displayTest = new DisplayTest;
     displayLayout->addWidget(displayTest);
+    connect(displayTest, &DisplayTest::started, this, [tabs, this]() {
+        m_displayWasFullScreen = isFullScreen();
+        tabs->tabBar()->hide();
+        showFullScreen();
+    });
+    connect(displayTest, &DisplayTest::finished, this, [tabs, this]() {
+        tabs->tabBar()->show();
+        if (!m_displayWasFullScreen) {
+            showNormal();
+        }
+        tabs->setCurrentIndex(0);
+    });
     tabs->addTab(displayTab, "Display");
 
     QWidget *touchTab = new QWidget;
     auto *touchLayout = new QVBoxLayout(touchTab);
-    touchLayout->setContentsMargins(0, 0, 0, 0);
-    touchLayout->setSpacing(0);
-    auto *tsTestBtn = new QPushButton("ts_test");
-    auto *tsCalBtn = new QPushButton("ts_calibrate");
-    auto *tsTestMtBtn = new QPushButton("ts_test_mt");
-    auto *touchLog = new QPlainTextEdit;
-    touchLog->setReadOnly(true);
-    touchLog->setStyleSheet("background:#0b1020; color:#d8e8ff; font-family:monospace; font-size:12px;");
-    touchLayout->addWidget(tsTestBtn);
-    touchLayout->addWidget(tsCalBtn);
-    touchLayout->addWidget(tsTestMtBtn);
-    touchLayout->addWidget(touchLog, 1);
+    touchLayout->setContentsMargins(24, 24, 24, 24);
+    touchLayout->setSpacing(16);
+    auto *touchTitle = new QLabel("Touch Test");
+    touchTitle->setAlignment(Qt::AlignCenter);
+    touchTitle->setStyleSheet("font-size:22px; font-weight:700; color:#17212f;");
+    auto *touchDesc = new QLabel("Calibrate, run single-touch, or check multi-touch response.");
+    touchDesc->setAlignment(Qt::AlignCenter);
+    touchDesc->setStyleSheet("color:#5f6b7a; font-size:13px;");
+
+    auto *tsCalBtn = new QPushButton("Calibrate");
+    auto *tsTestBtn = new QPushButton("Single-touch Test");
+    auto *tsTestMtBtn = new QPushButton("Multi-touch Test");
+    for (auto *b : {tsCalBtn, tsTestBtn, tsTestMtBtn}) {
+        b->setMinimumHeight(48);
+        b->setStyleSheet("font-size:16px; font-weight:700; background:#17304c; color:white; border:1px solid #2d5b89; border-radius:12px; padding:10px 14px;");
+    }
+    tsCalBtn->setStyleSheet("font-size:16px; font-weight:700; background:#d97706; color:white; border:1px solid #f59e0b; border-radius:12px; padding:10px 14px;");
+    tsTestMtBtn->setStyleSheet("font-size:16px; font-weight:700; background:#7a2ea8; color:white; border:1px solid #a15bd1; border-radius:12px; padding:10px 14px;");
+    auto *touchRow = new QWidget;
+    auto *touchRowLayout = new QHBoxLayout(touchRow);
+    touchRowLayout->setContentsMargins(0, 0, 0, 0);
+    touchRowLayout->setSpacing(12);
+    touchRowLayout->addStretch(1);
+    touchRowLayout->addWidget(tsCalBtn);
+    touchRowLayout->addWidget(tsTestBtn);
+    touchRowLayout->addWidget(tsTestMtBtn);
+    touchRowLayout->addStretch(1);
+    touchLayout->addStretch(1);
+    touchLayout->addWidget(touchTitle);
+    touchLayout->addWidget(touchDesc);
+    touchLayout->addSpacing(10);
+    touchLayout->addWidget(touchRow);
+    touchLayout->addStretch(2);
     tabs->addTab(touchTab, "Touch");
 
-    tabs->addTab(new GPIOTest, "GPIO / Buzzer");
-    tabs->addTab(new SerialTest, "Serial (RS232/485)");
+    tabs->addTab(new GPIOTest, "Buzzer");
+    tabs->addTab(new SerialTest, "Serial");
+    auto *stressTab = new PerfTest;
+    tabs->addTab(stressTab, "Stress");
+    tabs->addTab(new CommTest, "Comm");
     tabs->addTab(new StorageTest, "Storage");
     connect(tabs, &QTabWidget::currentChanged, this, [=](int index) {
         logUi(QString("tab_changed:%1:%2").arg(index).arg(tabs->tabText(index)));
+        if (tabs->tabText(index) != "Stress" && stressTab) {
+            QMetaObject::invokeMethod(stressTab, [stressTab]() { stressTab->stopAllLoads(); }, Qt::QueuedConnection);
+        }
     });
 
     QWidget *quickTab = new QWidget;
@@ -211,36 +255,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     quickView->setMinimumHeight(360);
     quickView->setSource(QUrl::fromLocalFile(QCoreApplication::applicationDirPath() + "/qml/FancyDashboard.qml"));
     quickLayout->addWidget(quickView);
-    tabs->addTab(quickTab, "Qt Quick Demo");
+    tabs->addTab(quickTab, "Qt Demo");
 
-    auto appendTouchLog = [touchLog](const QString& line) {
-        touchLog->appendPlainText(QDateTime::currentDateTime().toString(Qt::ISODate) + " " + line);
-    };
     auto runTool = [=](const QString& tool) {
-        appendTouchLog(QString("launch requested: %1").arg(tool));
         QString path = QStandardPaths::findExecutable(tool);
         if (path.isEmpty()) {
             path = QString("/usr/bin/%1").arg(tool);
         }
         if (!QFile::exists(path)) {
-            appendTouchLog(QString("not found: %1").arg(path));
             QMessageBox::warning(this, tool, QString("%1 not found on system.").arg(path));
             return;
         }
         QStringList args;
         args << "-s" << "-w" << "--" << "/bin/sh" << "-lc"
              << QString("export TSLIB_TSDEVICE=/dev/input/event1; export TSLIB_FBDEVICE=/dev/fb0; exec %1").arg(path);
-        appendTouchLog(QString("starting full-screen VT with tslib env: %1").arg(path));
         bool ok = QProcess::startDetached("/usr/bin/openvt", args);
         if (!ok) {
-            appendTouchLog("openvt failed");
             QMessageBox::warning(this, tool, QString("Failed to launch fullscreen VT for %1").arg(path));
-        } else {
-            appendTouchLog("started on VT");
         }
     };
-    connect(tsTestBtn, &QPushButton::clicked, this, [=]() { runTool("ts_test"); });
     connect(tsCalBtn, &QPushButton::clicked, this, [=]() { runTool("ts_calibrate"); });
+    connect(tsTestBtn, &QPushButton::clicked, this, [=]() { runTool("ts_test"); });
     connect(tsTestMtBtn, &QPushButton::clicked, this, [=]() { runTool("ts_test_mt"); });
 
     QWidget *gpuTab = new QWidget;
@@ -250,27 +285,32 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto *gpuView = new GpuDemoWidget;
     gpuView->setMinimumHeight(520);
     gpuLayout->addWidget(gpuView, 1);
-    tabs->addTab(gpuTab, "3D");
+    const int gpuTabIndex = tabs->addTab(gpuTab, "3D");
+    QTimer::singleShot(0, this, [tabs, gpuTabIndex]() {
+        const int prev = tabs->currentIndex();
+        tabs->setCurrentIndex(gpuTabIndex);
+        QTimer::singleShot(120, tabs, [tabs, prev]() { tabs->setCurrentIndex(prev); });
+    });
 
     QWidget *glmarkTab = new QWidget;
     auto *glmarkLayout = new QVBoxLayout(glmarkTab);
-    glmarkLayout->setContentsMargins(16, 16, 16, 16);
-    glmarkLayout->setSpacing(10);
+    glmarkLayout->setContentsMargins(12, 12, 12, 12);
+    glmarkLayout->setSpacing(8);
     auto *glmarkTitle = new QLabel("glmark2");
-    glmarkTitle->setStyleSheet("font-size:22px; font-weight:700;");
-    auto *glmarkDesc = new QLabel("External benchmark runner with quick/full presets. It runs as a separate window/process.");
+    glmarkTitle->setStyleSheet("font-size:20px; font-weight:700; color:#17212f;");
+    auto *glmarkDesc = new QLabel("Quick / full presets");
     glmarkDesc->setWordWrap(true);
-    glmarkDesc->setStyleSheet("color:#b0b0b0; font-size:14px;");
+    glmarkDesc->setStyleSheet("color:#5f6b7a; font-size:14px;");
     auto *glmarkQuickBtn = new QPushButton("Quick Run");
-    glmarkQuickBtn->setFixedHeight(54);
-    glmarkQuickBtn->setStyleSheet("font-size:18px; background:#1565c0; color:white; border-radius:8px;");
+    glmarkQuickBtn->setFixedHeight(48);
+    glmarkQuickBtn->setStyleSheet("font-size:16px; font-weight:700; background:#17304c; color:white; border:1px solid #2d5b89; border-radius:12px;");
     auto *glmarkFullBtn = new QPushButton("Full Run");
-    glmarkFullBtn->setFixedHeight(54);
-    glmarkFullBtn->setStyleSheet("font-size:18px; background:#8e24aa; color:white; border-radius:8px;");
+    glmarkFullBtn->setFixedHeight(48);
+    glmarkFullBtn->setStyleSheet("font-size:16px; font-weight:700; background:#d97706; color:white; border:1px solid #f59e0b; border-radius:12px;");
     auto *glmarkLog = new QPlainTextEdit;
     glmarkLog->setReadOnly(true);
     glmarkLog->setPlaceholderText("Launch logs will appear here...");
-    glmarkLog->setStyleSheet("background:#0b1020; color:#d8e8ff; font-family:monospace; font-size:12px;");
+    glmarkLog->setStyleSheet("background:#ffffff; color:#1f2937; font-family:monospace; font-size:12px; border:1px solid #cdd6e1; border-radius:10px;");
     glmarkLayout->addWidget(glmarkTitle);
     glmarkLayout->addWidget(glmarkDesc);
     glmarkLayout->addWidget(glmarkQuickBtn);
@@ -333,7 +373,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(glmarkQuickBtn, &QPushButton::clicked, this, [=]() { startGlmark(true); });
     connect(glmarkFullBtn, &QPushButton::clicked, this, [=]() { startGlmark(false); });
 
-    tabs->setStyleSheet("QTabBar::tab{ min-width:120px; min-height:32px; background:#444; color:white; font-weight:bold; } QTabWidget::pane{ border: 2px solid #666; }");
+    tabs->setStyleSheet("QTabBar::tab{ min-width:68px; min-height:30px; background:#e8edf3; color:#344253; font-size:12px; font-weight:600; padding:4px 8px; border-top-left-radius:0px; border-top-right-radius:0px; margin-right:1px; } QTabBar::tab:selected{ background:#ffffff; color:#0f1724; } QTabWidget::pane{ border: 0; background:#f7f9fc; }");
 
     auto *central = new QWidget(this);
     auto *centralLayout = new QVBoxLayout(central);
@@ -344,18 +384,33 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     // touch-friendly window defaults
     qApp->setStyleSheet(R"(
+        QWidget {
+            background: #f7f9fc;
+            color: #17212f;
+        }
         QPushButton{
             min-width:72px;
             min-height:34px;
             font-size:14px;
             padding:6px 10px;
+            background:#17304c;
+            color:white;
+            border:1px solid #2d5b89;
+            border-radius:10px;
         }
+        QPushButton:hover{ background:#1e3d60; }
+        QPushButton:pressed{ background:#12263d; }
         QComboBox, QSlider, QProgressBar, QLabel {
             font-size: 14px;
         }
+        QPlainTextEdit {
+            background:#ffffff;
+            color:#17212f;
+        }
     )");
     setWindowFlags(windowFlags() | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
-    setFixedSize(1024, 600);
+    setMinimumSize(1024, 600);
+    resize(1024, 600);
     setWindowTitle("HMI Test Tool");
 
     // load calibration if present

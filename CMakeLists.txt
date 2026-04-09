@@ -21,6 +21,8 @@ add_executable(hmi-test
   src/serialtest.h
   src/storagetest.cpp
   src/storagetest.h
+  src/commtest.cpp
+  src/commtest.h
   src/displaytest.cpp
   src/displaytest.h
   src/perftest.cpp
