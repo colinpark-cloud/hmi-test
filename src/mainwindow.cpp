@@ -52,6 +52,8 @@
 #include "smartoven.h"
 #include "storagetest.h"
 #include "commtest.h"
+#include "cameraview.h"
+#include "barcodetest.h"
 
 class GpuDemoWidget : public QWidget {
 public:
@@ -238,6 +240,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto *stressTab = new PerfTest;
     tabs->addTab(stressTab, "Stress");
     tabs->addTab(new CommTest, "Comm");
+    tabs->addTab(new CameraView, "Camera");
+    tabs->addTab(new BarcodeTest, "Barcode");
     tabs->addTab(new StorageTest, "Storage");
     connect(tabs, &QTabWidget::currentChanged, this, [=](int index) {
         logUi(QString("tab_changed:%1:%2").arg(index).arg(tabs->tabText(index)));

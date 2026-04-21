@@ -39,6 +39,7 @@ private:
     void updateRow(TargetRow& row);
     bool checkComPort(const QString& device) const;
     bool checkLanLink(const QString& ip) const;
+    bool checkLanAnyLink(const QStringList& ips, const QString& skipIp = QString()) const;
     bool checkSerialRoundTrip(const QString& device) const;
     void setRunButton();
     void updateClock();

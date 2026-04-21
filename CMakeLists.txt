@@ -23,6 +23,10 @@ add_executable(hmi-test
   src/storagetest.h
   src/commtest.cpp
   src/commtest.h
+  src/cameraview.cpp
+  src/cameraview.h
+  src/barcodetest.cpp
+  src/barcodetest.h
   src/displaytest.cpp
   src/displaytest.h
   src/perftest.cpp

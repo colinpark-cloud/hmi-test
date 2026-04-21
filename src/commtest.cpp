@@ -26,7 +26,7 @@ static QString detailStyle() {
 }
 static QString runStyle(bool running) {
     return running
-        ? "QPushButton{font-size:16px; font-weight:800; background:#1f7a5a; color:white; border:1px solid #166648; border-radius:14px; padding:12px 14px;}"
+        ? "QPushButton{font-size:16px; font-weight:800; background:#22c55e; color:white; border:1px solid #16a34a; border-radius:14px; padding:12px 14px;}"
           "QPushButton:pressed{padding-top:14px; padding-bottom:10px;}"
         : "QPushButton{font-size:16px; font-weight:800; background:#e8f1fb; color:#0f1724; border:1px solid #b8c7d9; border-radius:14px; padding:12px 14px;}"
           "QPushButton:pressed{padding-top:14px; padding-bottom:10px;}";
@@ -50,6 +50,18 @@ static bool applyIpAddress(const QString& iface, const QString& ip) {
     if (ifconfig.isEmpty()) return false;
     const QStringList args = {iface, ip, "netmask", "255.255.255.0", "up"};
     return QProcess::execute(ifconfig, args) == 0;
+}
+
+static QString peerLanIp(const QString& ip) {
+    QStringList parts = ip.split('.');
+    if (parts.size() != 4) return ip;
+    bool ok = false;
+    int last = parts.last().toInt(&ok);
+    if (!ok) return ip;
+    if ((last % 2) == 0) ++last; else --last;
+    if (last < 0 || last > 255) return ip;
+    parts[3] = QString::number(last);
+    return parts.join('.');
 }
 
 CommTest::CommTest(QWidget* parent) : QWidget(parent) {
@@ -218,7 +230,35 @@ bool CommTest::checkComPort(const QString& device) const {
 }
 
 bool CommTest::checkLanLink(const QString& ip) const {
-    Q_UNUSED(ip)
+    const QStringList candidates = {
+        "ping",
+        "/bin/ping",
+        "/usr/bin/ping",
+        "/sbin/ping",
+        "/usr/sbin/ping"
+    };
+    QString pingCmd;
+    for (const auto& c : candidates) {
+        if (QFile::exists(c)) { pingCmd = c; break; }
+    }
+    if (pingCmd.isEmpty() || ip.isEmpty()) return false;
+
+    QProcess proc;
+    proc.start(pingCmd, {"-n", "-c", "1", "-W", "1", ip});
+    if (!proc.waitForStarted(1000)) return false;
+    if (!proc.waitForFinished(1500)) {
+        proc.kill();
+        proc.waitForFinished(200);
+        return false;
+    }
+    return proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0;
+}
+
+bool CommTest::checkLanAnyLink(const QStringList& ips, const QString& skipIp) const {
+    for (const auto& ip : ips) {
+        if (!skipIp.isEmpty() && ip == skipIp) continue;
+        if (checkLanLink(ip)) return true;
+    }
     return false;
 }
 
@@ -284,10 +324,10 @@ void CommTest::onTick() {
 
     addResult(0, checkSerialRoundTrip(m_rows[0].device));
     addResult(1, checkSerialRoundTrip(m_rows[1].device));
-    const QString lan1 = m_rows[2].ip;
-    const QString lan2 = m_rows[3].ip;
-    addResult(2, checkLanLink(lan1));
-    addResult(3, checkLanLink(lan2));
+    const QStringList lan1Peers = {"192.168.1.100", "192.168.1.101", "192.168.1.102", "192.168.1.103"};
+    const QStringList lan2Peers = {"192.168.2.100", "192.168.2.101", "192.168.2.102", "192.168.2.103"};
+    addResult(2, checkLanAnyLink(lan1Peers, m_rows[2].ip));
+    addResult(3, checkLanAnyLink(lan2Peers, m_rows[3].ip));
 }
 
 void CommTest::updateClock() {
