@@ -54,6 +54,7 @@
 #include "commtest.h"
 #include "cameraview.h"
 #include "barcodetest.h"
+#include "proxtest.h"
 
 class GpuDemoWidget : public QWidget {
 public:
@@ -176,8 +177,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     auto *tabs = new QTabWidget(this);
     tabs->setDocumentMode(true);
-    tabs->setUsesScrollButtons(false);
+    tabs->setTabPosition(QTabWidget::North);
+    tabs->setUsesScrollButtons(true);
     tabs->tabBar()->setExpanding(false);
+    tabs->tabBar()->setStyleSheet("QTabBar::tab{min-width:48px; max-width:72px; padding:3px 5px; margin-right:1px;}");
+    tabs->tabBar()->setIconSize(QSize(0,0));
 
     QWidget *displayTab = new QWidget;
     auto *displayLayout = new QVBoxLayout(displayTab);
@@ -242,7 +246,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     tabs->addTab(new CommTest, "Comm");
     tabs->addTab(new CameraView, "Camera");
     tabs->addTab(new BarcodeTest, "Barcode");
-    tabs->addTab(new StorageTest, "Storage");
+    const int proxTabIndex = tabs->addTab(new ProxTest, "P");
+    tabs->addTab(new StorageTest, "Store");
+    tabs->setCurrentIndex(proxTabIndex);
     connect(tabs, &QTabWidget::currentChanged, this, [=](int index) {
         logUi(QString("tab_changed:%1:%2").arg(index).arg(tabs->tabText(index)));
         if (tabs->tabText(index) != "Stress" && stressTab) {
@@ -259,7 +265,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     quickView->setMinimumHeight(360);
     quickView->setSource(QUrl::fromLocalFile(QCoreApplication::applicationDirPath() + "/qml/FancyDashboard.qml"));
     quickLayout->addWidget(quickView);
-    tabs->addTab(quickTab, "Qt Demo");
+    tabs->addTab(quickTab, "Demo");
 
     auto runTool = [=](const QString& tool) {
         QString path = QStandardPaths::findExecutable(tool);
@@ -289,12 +295,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto *gpuView = new GpuDemoWidget;
     gpuView->setMinimumHeight(520);
     gpuLayout->addWidget(gpuView, 1);
-    const int gpuTabIndex = tabs->addTab(gpuTab, "3D");
-    QTimer::singleShot(0, this, [tabs, gpuTabIndex]() {
-        const int prev = tabs->currentIndex();
-        tabs->setCurrentIndex(gpuTabIndex);
-        QTimer::singleShot(120, tabs, [tabs, prev]() { tabs->setCurrentIndex(prev); });
-    });
+    tabs->addTab(gpuTab, "3D");
 
     QWidget *glmarkTab = new QWidget;
     auto *glmarkLayout = new QVBoxLayout(glmarkTab);
@@ -320,7 +321,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     glmarkLayout->addWidget(glmarkQuickBtn);
     glmarkLayout->addWidget(glmarkFullBtn);
     glmarkLayout->addWidget(glmarkLog, 1);
-    tabs->addTab(glmarkTab, "glmark2");
+    tabs->addTab(glmarkTab, "GL");
 
     auto appendGlmarkLog = [glmarkLog](const QString& line) {
         glmarkLog->appendPlainText(QDateTime::currentDateTime().toString(Qt::ISODate) + " " + line);
