@@ -1,6 +1,7 @@
 #include "proxtest.h"
 #include "cameraview.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QFile>
 #include <QHBoxLayout>
@@ -106,7 +107,7 @@ ProxTest::ProxTest(QWidget* parent) : QWidget(parent) {
     m_demoView = new QQuickWidget;
     m_demoView->setResizeMode(QQuickWidget::SizeRootObjectToView);
     m_demoView->setClearColor(Qt::black);
-    m_demoView->setSource(QUrl::fromLocalFile("/home/root/qml/FancyDashboard.qml"));
+    m_demoView->setSource(QUrl::fromLocalFile(QCoreApplication::applicationDirPath() + "/qml/FancyDashboard.qml"));
 
     m_cameraView = new CameraView(this);
 
@@ -296,7 +297,9 @@ void ProxTest::pollProx() {
 }
 
 void ProxTest::executeI2CCommands() {
-    initProxSensor();
+    if (!m_initialized) {
+        initProxSensor();
+    }
 
     quint16 reg03 = 0;
     quint16 reg04 = 0;
