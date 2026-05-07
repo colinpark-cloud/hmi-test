@@ -365,6 +365,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         QString launcher = "/usr/bin/sudo";
         QStringList args;
         args << "/usr/local/bin/hmi-touch-launch" << tool;
+        QMessageBox::information(this, tool, QString("Launching %1. Touch test will run on console VT and may require manual return if the system VT does not restore cleanly.").arg(tool));
         bool ok = QProcess::startDetached(launcher, args);
         if (!ok) {
             touchStatus->setText(QString("Launch failed: %1").arg(tool));
