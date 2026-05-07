@@ -6,6 +6,7 @@
 #include <QTransform>
 
 class QProcess;
+class QTabWidget;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -14,6 +15,9 @@ public:
     bool eventFilter(QObject* obj, QEvent* ev) override;
 
 private:
+    void applyModelLayout(QTabWidget* tabs);
+    QString detectModelName() const;
+
     QTransform m_calib;
     bool loadCalibration();
     QProcess* m_demoProc = nullptr;

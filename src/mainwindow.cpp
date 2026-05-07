@@ -3,6 +3,7 @@
 #include <QComboBox>
 #include <QDateTime>
 #include <QFile>
+#include <QFileInfo>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -166,6 +167,51 @@ private:
     float angle = 0.0f;
 };
 
+QString MainWindow::detectModelName() const {
+    QFile f("/proc/device-tree/model");
+    if (f.open(QIODevice::ReadOnly)) {
+        QString model = QString::fromUtf8(f.readAll());
+        model.remove(QChar('\0'));
+        model = model.trimmed();
+        if (!model.isEmpty()) return model;
+    }
+    return QString();
+}
+
+void MainWindow::applyModelLayout(QTabWidget* tabs) {
+    const QString model = detectModelName();
+
+    int width = 1024;
+    int height = 600;
+    int tabMinWidth = 68;
+    int tabMaxWidth = 72;
+
+    if (model.contains("eXT2-07", Qt::CaseInsensitive)) {
+        width = 800; height = 480; tabMinWidth = 60; tabMaxWidth = 66;
+    } else if (model.contains("eXT2-10W", Qt::CaseInsensitive)) {
+        width = 1280; height = 800; tabMinWidth = 78; tabMaxWidth = 86;
+    } else if (model.contains("eXT2-12W", Qt::CaseInsensitive)) {
+        width = 1280; height = 800; tabMinWidth = 78; tabMaxWidth = 86;
+    } else if (model.contains("eXT2-15W", Qt::CaseInsensitive)) {
+        width = 1366; height = 768; tabMinWidth = 80; tabMaxWidth = 90;
+    } else if (model.contains("eXT2-104", Qt::CaseInsensitive) || model.contains("eXT2-10", Qt::CaseInsensitive)) {
+        width = 1024; height = 768; tabMinWidth = 72; tabMaxWidth = 80;
+    } else if (model.contains("eXT2-121", Qt::CaseInsensitive) || model.contains("eXT2-12", Qt::CaseInsensitive)) {
+        width = 1024; height = 768; tabMinWidth = 72; tabMaxWidth = 80;
+    } else if (model.contains("eXT2-150", Qt::CaseInsensitive) || model.contains("eXT2-15", Qt::CaseInsensitive)) {
+        width = 1024; height = 768; tabMinWidth = 74; tabMaxWidth = 82;
+    }
+
+    if (tabs && tabs->tabBar()) {
+        tabs->tabBar()->setStyleSheet(QString("QTabBar::tab{min-width:%1px; max-width:%2px; padding:3px 5px; margin-right:1px;}")
+                                      .arg(tabMinWidth)
+                                      .arg(tabMaxWidth));
+    }
+
+    setMinimumSize(width, height);
+    resize(width, height);
+}
+
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto logUi = [](const QString& msg) {
         QFile logf("/tmp/hmi-ui.log");
@@ -182,6 +228,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     tabs->tabBar()->setExpanding(false);
     tabs->tabBar()->setStyleSheet("QTabBar::tab{min-width:48px; max-width:72px; padding:3px 5px; margin-right:1px;}");
     tabs->tabBar()->setIconSize(QSize(0,0));
+    applyModelLayout(tabs);
 
     QWidget *displayTab = new QWidget;
     auto *displayLayout = new QVBoxLayout(displayTab);
@@ -414,8 +461,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
     )");
     setWindowFlags(windowFlags() | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
-    setMinimumSize(1024, 600);
-    resize(1024, 600);
     setWindowTitle("HMI Test Tool");
 
     // load calibration if present
