@@ -197,7 +197,7 @@ void MainWindow::applyModelLayout(QTabWidget* tabs) {
     } else if (model.contains("eXT2-104", Qt::CaseInsensitive) || model.contains("eXT2-10", Qt::CaseInsensitive)) {
         width = 1024; height = 768; tabMinWidth = 72; tabMaxWidth = 80;
     } else if (model.contains("eXT2-121", Qt::CaseInsensitive) || model.contains("eXT2-12", Qt::CaseInsensitive)) {
-        width = 1024; height = 768; tabMinWidth = 72; tabMaxWidth = 80;
+        width = 1024; height = 768; tabMinWidth = 60; tabMaxWidth = 68;
     } else if (model.contains("eXT2-150", Qt::CaseInsensitive) || model.contains("eXT2-15", Qt::CaseInsensitive)) {
         width = 1024; height = 768; tabMinWidth = 74; tabMaxWidth = 82;
     }
@@ -259,6 +259,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto *touchDesc = new QLabel("Calibrate, run single-touch, or check multi-touch response.");
     touchDesc->setAlignment(Qt::AlignCenter);
     touchDesc->setStyleSheet("color:#5f6b7a; font-size:13px;");
+    auto *touchStatus = new QLabel("Ready");
+    touchStatus->setAlignment(Qt::AlignCenter);
+    touchStatus->setStyleSheet("color:#2563eb; font-size:13px; font-weight:700;");
 
     auto *tsCalBtn = new QPushButton("Calibrate");
     auto *tsTestBtn = new QPushButton("Single-touch Test");
@@ -281,6 +284,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     touchLayout->addStretch(1);
     touchLayout->addWidget(touchTitle);
     touchLayout->addWidget(touchDesc);
+    touchLayout->addWidget(touchStatus);
     touchLayout->addSpacing(10);
     touchLayout->addWidget(touchRow);
     touchLayout->addStretch(2);
@@ -289,46 +293,84 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     tabs->addTab(new GPIOTest, "Buzzer");
     tabs->addTab(new SerialTest, "Serial");
     auto *stressTab = new PerfTest;
+    ProxTest *proxTest = nullptr;
+    CameraView *cameraTab = nullptr;
     tabs->addTab(stressTab, "Stress");
     tabs->addTab(new CommTest, "Comm");
-    tabs->addTab(new CameraView, "Camera");
+    cameraTab = new CameraView;
+    tabs->addTab(cameraTab, "Camera");
     tabs->addTab(new BarcodeTest, "Barcode");
-    const int proxTabIndex = tabs->addTab(new ProxTest, "P");
+    proxTest = new ProxTest;
+    const int proxTabIndex = tabs->addTab(proxTest, "Sensor");
     tabs->addTab(new StorageTest, "Store");
     tabs->setCurrentIndex(proxTabIndex);
     connect(tabs, &QTabWidget::currentChanged, this, [=](int index) {
         logUi(QString("tab_changed:%1:%2").arg(index).arg(tabs->tabText(index)));
-        if (tabs->tabText(index) != "Stress" && stressTab) {
+        const QString currentTab = tabs->tabText(index);
+        if (currentTab != "Stress" && stressTab) {
             QMetaObject::invokeMethod(stressTab, [stressTab]() { stressTab->stopAllLoads(); }, Qt::QueuedConnection);
         }
+        if (proxTest) {
+            proxTest->setActive(currentTab == "Sensor");
+        }
+        if (cameraTab && currentTab != "Camera") {
+            cameraTab->stopCamera();
+        }
     });
-
-    QWidget *quickTab = new QWidget;
-    auto *quickLayout = new QVBoxLayout(quickTab);
-    quickLayout->setContentsMargins(0, 0, 0, 0);
-    auto *quickView = new QQuickWidget;
-    quickView->setResizeMode(QQuickWidget::SizeRootObjectToView);
-    quickView->setClearColor(Qt::black);
-    quickView->setMinimumHeight(360);
-    quickView->setSource(QUrl::fromLocalFile(QCoreApplication::applicationDirPath() + "/qml/FancyDashboard.qml"));
-    quickLayout->addWidget(quickView);
-    tabs->addTab(quickTab, "Demo");
 
     auto runTool = [=](const QString& tool) {
         QString path = QStandardPaths::findExecutable(tool);
         if (path.isEmpty()) {
             path = QString("/usr/bin/%1").arg(tool);
         }
+        touchStatus->setText(QString("Launching %1...").arg(tool));
         if (!QFile::exists(path)) {
+            touchStatus->setText(QString("Missing: %1").arg(path));
             QMessageBox::warning(this, tool, QString("%1 not found on system.").arg(path));
             return;
         }
+        const QString model = detectModelName();
+        QString tsDevice = "/dev/input/event1";
+        const bool prefersTsc = model.contains("eXT2-07", Qt::CaseInsensitive)
+                             || model.contains("eXT2-104", Qt::CaseInsensitive)
+                             || model.contains("eXT2-121", Qt::CaseInsensitive)
+                             || model.contains("eXT2-150", Qt::CaseInsensitive);
+        const bool prefersPenMount = model.contains("eXT2-15W", Qt::CaseInsensitive);
+
+        if (prefersTsc) {
+            if (QFile::exists("/dev/input/touchscreen-tsc2007")) {
+                tsDevice = "/dev/input/touchscreen-tsc2007";
+            } else if (QFile::exists("/dev/input/touchscreen-acdc")) {
+                tsDevice = "/dev/input/touchscreen-acdc";
+            } else if (QFile::exists("/dev/input/touchscreen-PenMount")) {
+                tsDevice = "/dev/input/touchscreen-PenMount";
+            }
+        } else if (prefersPenMount) {
+            if (QFile::exists("/dev/input/touchscreen-PenMount")) {
+                tsDevice = "/dev/input/touchscreen-PenMount";
+            } else if (QFile::exists("/dev/input/touchscreen-acdc")) {
+                tsDevice = "/dev/input/touchscreen-acdc";
+            } else if (QFile::exists("/dev/input/touchscreen-tsc2007")) {
+                tsDevice = "/dev/input/touchscreen-tsc2007";
+            }
+        } else {
+            if (QFile::exists("/dev/input/touchscreen-acdc")) {
+                tsDevice = "/dev/input/touchscreen-acdc";
+            } else if (QFile::exists("/dev/input/touchscreen-PenMount")) {
+                tsDevice = "/dev/input/touchscreen-PenMount";
+            } else if (QFile::exists("/dev/input/touchscreen-tsc2007")) {
+                tsDevice = "/dev/input/touchscreen-tsc2007";
+            }
+        }
+        QString launcher = "/usr/bin/sudo";
         QStringList args;
-        args << "-s" << "-w" << "--" << "/bin/sh" << "-lc"
-             << QString("export TSLIB_TSDEVICE=/dev/input/event1; export TSLIB_FBDEVICE=/dev/fb0; exec %1").arg(path);
-        bool ok = QProcess::startDetached("/usr/bin/openvt", args);
+        args << "/usr/local/bin/hmi-touch-launch" << tool;
+        bool ok = QProcess::startDetached(launcher, args);
         if (!ok) {
-            QMessageBox::warning(this, tool, QString("Failed to launch fullscreen VT for %1").arg(path));
+            touchStatus->setText(QString("Launch failed: %1").arg(tool));
+            QMessageBox::warning(this, tool, QString("Failed to launch helper for %1").arg(path));
+        } else {
+            touchStatus->setText(QString("Launched: %1 (%2)").arg(tool, tsDevice));
         }
     };
     connect(tsCalBtn, &QPushButton::clicked, this, [=]() { runTool("ts_calibrate"); });
