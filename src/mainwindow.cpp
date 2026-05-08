@@ -56,6 +56,7 @@
 #include "cameraview.h"
 #include "barcodetest.h"
 #include "proxtest.h"
+#include "irdatest.h"
 
 class GpuDemoWidget : public QWidget {
 public:
@@ -297,6 +298,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     CameraView *cameraTab = nullptr;
     tabs->addTab(stressTab, "Stress");
     tabs->addTab(new CommTest, "Comm");
+    tabs->addTab(new IrdaTest, "IrDA");
     cameraTab = new CameraView;
     tabs->addTab(cameraTab, "Camera");
     tabs->addTab(new BarcodeTest, "Barcode");

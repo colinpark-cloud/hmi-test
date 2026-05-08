@@ -9,11 +9,13 @@ class QFile;
 class QStackedWidget;
 class QQuickWidget;
 class CameraView;
+class QTimer;
 
 class ProxTest : public QWidget {
     Q_OBJECT
 public:
     explicit ProxTest(QWidget* parent = nullptr);
+    void setActive(bool active);
 
 private slots:
     void pollProx();
@@ -21,6 +23,7 @@ private slots:
     void appendLog(const QString& text);
     void executeI2CCommands();
     void startI2CPolling();
+    void reinitializeSensor();
 
 private:
     bool runCmd(const QStringList& args, QString* out = nullptr);
@@ -43,6 +46,7 @@ private:
     QLabel* m_busLabel = nullptr;
     QLabel* m_addrLabel = nullptr;
     QPushButton* m_autoBrightnessBtn = nullptr;
+    QPushButton* m_reinitBtn = nullptr;
     QPlainTextEdit* m_log = nullptr;
     QStackedWidget* m_previewStack = nullptr;
     QQuickWidget* m_demoView = nullptr;
@@ -59,4 +63,6 @@ private:
     bool m_autoBrightness = true;
     bool m_initialized = false;
     bool m_personPresent = false;
+    bool m_active = true;
+    QTimer* m_pollTimer = nullptr;
 };

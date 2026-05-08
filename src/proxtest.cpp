@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QProcess>
@@ -40,22 +41,25 @@ ProxTest::ProxTest(QWidget* parent) : QWidget(parent) {
     desc->setStyleSheet("color:#5f6b7a; font-size:14px;");
 
     auto *contentRow = new QHBoxLayout;
-    contentRow->setSpacing(12);
+    contentRow->setSpacing(10);
 
     auto *leftCol = new QVBoxLayout;
-    auto *infoRow = new QHBoxLayout;
+    auto *infoColTop = new QVBoxLayout;
+    infoColTop->setSpacing(6);
     m_busLabel = new QLabel("Bus: MCP2221 @ /dev/i2c-6");
     m_addrLabel = new QLabel("Addr: 0x51");
     for (auto *l : {m_busLabel, m_addrLabel}) {
         l->setStyleSheet("background:#ffffff; border:1px solid #cdd6e1; border-radius:10px; padding:8px 12px; font-size:14px; font-weight:700;");
-        infoRow->addWidget(l);
+        l->setMaximumWidth(220);
+        infoColTop->addWidget(l);
     }
-    infoRow->addStretch(1);
 
-    m_status = new QLabel("Ready.");
+    m_status = new QLabel("Sensor Ready");
+    m_status->setMaximumWidth(220);
     m_status->setStyleSheet("color:#2563eb; font-weight:700; font-size:14px;");
 
     auto *valueBox = new QWidget;
+    valueBox->setMaximumWidth(220);
     valueBox->setStyleSheet("background:#ffffff; border:1px solid #cdd6e1; border-radius:12px;");
     auto *valueLayout = new QVBoxLayout(valueBox);
     valueLayout->setContentsMargins(12, 10, 12, 10);
@@ -86,23 +90,31 @@ ProxTest::ProxTest(QWidget* parent) : QWidget(parent) {
     valueLayout->addWidget(m_flagValue);
 
     m_autoBrightnessBtn = new QPushButton("Auto Brightness ON");
+    m_autoBrightnessBtn->setMaximumWidth(220);
     m_autoBrightnessBtn->setMinimumHeight(40);
     m_autoBrightnessBtn->setStyleSheet("font-size:15px; font-weight:700; background:#7a2ea8; color:white; border:1px solid #a15bd1; border-radius:10px; padding:8px 12px;");
 
+    m_reinitBtn = new QPushButton("Re-init Sensor");
+    m_reinitBtn->setMaximumWidth(220);
+    m_reinitBtn->setMinimumHeight(40);
+    m_reinitBtn->setStyleSheet("font-size:15px; font-weight:700; background:#17304c; color:white; border:1px solid #2d5b89; border-radius:10px; padding:8px 12px;");
+
     m_log = new QPlainTextEdit;
     m_log->setReadOnly(true);
+    m_log->hide();
     m_log->setPlaceholderText("Proximity log...");
-    m_log->setStyleSheet("background:#ffffff; color:#17212f; font-family:monospace; font-size:12px; border:1px solid #cdd6e1; border-radius:10px;");
+    m_log->setStyleSheet("background:#ffffff; color:#17212f; font-family:monospace; font-size:11px; border:1px solid #cdd6e1; border-radius:10px;");
 
-    leftCol->addLayout(infoRow);
+    leftCol->addLayout(infoColTop);
     leftCol->addWidget(m_status);
     leftCol->addWidget(valueBox);
     leftCol->addWidget(m_autoBrightnessBtn);
-    leftCol->addWidget(m_log, 1);
+    leftCol->addWidget(m_reinitBtn);
+    leftCol->addStretch(1);
 
     m_previewStack = new QStackedWidget;
     m_previewStack->setStyleSheet("background:#ffffff; border:1px solid #cdd6e1; border-radius:12px;");
-    m_previewStack->setMinimumSize(520, 360);
+    m_previewStack->setMinimumSize(560, 420);
 
     m_demoView = new QQuickWidget;
     m_demoView->setResizeMode(QQuickWidget::SizeRootObjectToView);
@@ -115,8 +127,8 @@ ProxTest::ProxTest(QWidget* parent) : QWidget(parent) {
     m_previewStack->addWidget(m_cameraView);
     m_previewStack->setCurrentWidget(m_demoView);
 
-    contentRow->addLayout(leftCol, 1);
-    contentRow->addWidget(m_previewStack, 2);
+    contentRow->addLayout(leftCol, 0);
+    contentRow->addWidget(m_previewStack, 5);
 
     layout->addWidget(title);
     layout->addWidget(desc);
@@ -130,6 +142,7 @@ ProxTest::ProxTest(QWidget* parent) : QWidget(parent) {
         }
         setStatus(m_autoBrightness ? "Auto brightness enabled" : "Auto brightness disabled", false);
     });
+    connect(m_reinitBtn, &QPushButton::clicked, this, &ProxTest::reinitializeSensor);
 
     m_brightnessMax = readBacklightMax();
     m_lastBrightness = m_brightnessMax;
@@ -292,11 +305,50 @@ void ProxTest::updatePresenceUi(quint16 ps) {
     }
 }
 
+void ProxTest::setActive(bool active) {
+    if (m_active == active) return;
+    m_active = active;
+    if (!m_active) {
+        if (m_pollTimer) m_pollTimer->stop();
+        if (m_cameraView) m_cameraView->stopCamera();
+        if (m_previewStack && m_demoView) m_previewStack->setCurrentWidget(m_demoView);
+        m_personPresent = false;
+        setStatus("Sensor paused", false);
+    } else {
+        if (m_pollTimer && !m_pollTimer->isActive()) m_pollTimer->start(1000);
+        setStatus("Sensor OK", false);
+        executeI2CCommands();
+    }
+}
+
+void ProxTest::reinitializeSensor() {
+    m_initialized = false;
+    setStatus("Re-initializing sensor...", false);
+
+    bool ok = false;
+    quint16 probe = 0;
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        QThread::msleep(250);
+        if (readWord(m_bus, m_addr, "0x0e", probe) || readWord(m_bus, m_addr, "0x08", probe)) {
+            ok = initProxSensor();
+            if (ok) break;
+        }
+    }
+
+    if (ok) {
+        setStatus("Sensor re-init complete", false);
+        executeI2CCommands();
+    } else {
+        setStatus("Sensor re-init failed", true);
+    }
+}
+
 void ProxTest::pollProx() {
     executeI2CCommands();
 }
 
 void ProxTest::executeI2CCommands() {
+    if (!m_active) return;
     if (!m_initialized) {
         initProxSensor();
     }
@@ -321,18 +373,13 @@ void ProxTest::executeI2CCommands() {
     if (m_flagValue) m_flagValue->setText(okReg03 ? QString("0x%1").arg(reg03, 4, 16, QLatin1Char('0')).toUpper() : "ERR");
     if (okAls) updateAutoBrightness(als);
     if (okPs) updatePresenceUi(ps);
-    setStatus((okPs || okAls) ? QString("PS=0x%1 ALS=0x%2 REG03=0x%3 REG04=0x%4")
-                      .arg(ps, 4, 16, QLatin1Char('0')).toUpper()
-                      .arg(als, 4, 16, QLatin1Char('0')).toUpper()
-                      .arg(reg03, 4, 16, QLatin1Char('0')).toUpper()
-                      .arg(reg04, 4, 16, QLatin1Char('0')).toUpper()
-                   : "Sensor read failed",
+    setStatus((okPs || okAls) ? "Sensor OK" : "Sensor read failed",
               !(okPs || okAls));
 }
 
 void ProxTest::startI2CPolling() {
-    auto timer = new QTimer(this);
-    connect(timer, &QTimer::timeout, this, [this]() {
+    m_pollTimer = new QTimer(this);
+    connect(m_pollTimer, &QTimer::timeout, this, [this]() {
         quint16 ps = 0;
         quint16 als = 0;
         const bool okPs = readWord(m_bus, m_addr, "0x08", ps);
@@ -342,12 +389,10 @@ void ProxTest::startI2CPolling() {
         if (okAls) updateAutoBrightness(als);
         if (okPs) updatePresenceUi(ps);
         if (okPs || okAls) {
-            setStatus(QString("watch: PS=0x%1 ALS=0x%2")
-                      .arg(ps, 4, 16, QLatin1Char('0')).toUpper()
-                      .arg(als, 4, 16, QLatin1Char('0')).toUpper(), false);
+            setStatus("Sensor OK", false);
         } else {
             setStatus("Polling failed for I2C", true);
         }
     });
-    timer->start(1000);
+    m_pollTimer->start(1000);
 }

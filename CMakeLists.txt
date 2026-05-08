@@ -9,7 +9,7 @@ if(NOT DEFINED OE_QMAKE_PATH_EXTERNAL_HOST_BINS AND DEFINED ENV{OE_QMAKE_PATH_EX
   set(OE_QMAKE_PATH_EXTERNAL_HOST_BINS "$ENV{OE_QMAKE_PATH_EXTERNAL_HOST_BINS}")
 endif()
 
-find_package(Qt5 COMPONENTS Widgets Core Gui OpenGL Quick Qml QuickWidgets 3DCore 3DRender 3DInput 3DExtras REQUIRED)
+find_package(Qt5 REQUIRED COMPONENTS Widgets Core Gui OpenGL Quick Qml QuickWidgets 3DCore 3DRender 3DInput 3DExtras)
 
 add_executable(hmi-test
   src/main.cpp
@@ -27,6 +27,14 @@ add_executable(hmi-test
   src/cameraview.h
   src/barcodetest.cpp
   src/barcodetest.h
+  src/irdatest.cpp
+  src/irdatest.h
+  src/proxtest.cpp
+  src/proxtest.h
+  src/pctest.cpp
+  src/pctest.h
+  src/vcnl4200test.cpp
+  src/vcnl4200test.h
   src/displaytest.cpp
   src/displaytest.h
   src/perftest.cpp
