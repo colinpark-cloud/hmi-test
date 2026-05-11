@@ -7,6 +7,7 @@ class QPushButton;
 class QPlainTextEdit;
 class QSocketNotifier;
 class QFile;
+class QLineEdit;
 
 class IrdaTest : public QWidget {
     Q_OBJECT
@@ -18,12 +19,15 @@ private slots:
     void startRx();
     void stopRx();
     void clearLog();
+    void sendTest();
     void handleReadyRead();
     void setStatus(const QString& text, bool error = false);
     void appendLog(const QString& text);
 
 private:
     QLabel* m_status = nullptr;
+    QLineEdit* m_sendInput = nullptr;
+    QPushButton* m_sendBtn = nullptr;
     QPushButton* m_startBtn = nullptr;
     QPushButton* m_stopBtn = nullptr;
     QPushButton* m_clearBtn = nullptr;
