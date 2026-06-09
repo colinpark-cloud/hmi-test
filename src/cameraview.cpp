@@ -198,11 +198,15 @@ void CameraView::closeDevice() {
 }
 
 bool CameraView::readFrame(QImage& out) {
-    if (m_fd < 0) return false;
+    if (m_fd < 0) {
+        setStatus("Camera fd not open");
+        return false;
+    }
     v4l2_buffer buf{};
     buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     buf.memory = V4L2_MEMORY_MMAP;
     if (!xioctl(m_fd, VIDIOC_DQBUF, &buf)) {
+        setStatus("VIDIOC_DQBUF failed");
         return false;
     }
     if (buf.index >= kBufferCount || !m_buffers[buf.index]) return false;
@@ -246,6 +250,8 @@ bool CameraView::readFrame(QImage& out) {
             }
         }
         out = img;
+    } else {
+        setStatus(QString("Unsupported pixel format: 0x%1").arg(m_pixfmt.pixelformat, 0, 16));
     }
 
     if (buf.index < kBufferCount) {
@@ -256,6 +262,9 @@ bool CameraView::readFrame(QImage& out) {
 
 void CameraView::startCamera() {
     if (m_running) return;
+    if (m_deviceCombo && m_deviceCombo->currentText().isEmpty() && m_deviceCombo->count() > 0) {
+        m_deviceCombo->setCurrentIndex(0);
+    }
     if (!m_deviceCombo || m_deviceCombo->currentText().isEmpty()) {
         setStatus("No device selected");
         return;
@@ -285,7 +294,9 @@ void CameraView::pollFrame() {
     if (m_fd < 0) return;
     QImage frame;
     if (!readFrame(frame)) return;
+    setStatus(QString("Streaming %1x%2").arg(frame.width()).arg(frame.height()));
     if (frame.isNull()) return;
+    frame = frame.mirrored(true, false);
     const QSize target = m_imageLabel->size();
     QPixmap px = QPixmap::fromImage(frame).scaled(target, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     m_imageLabel->setPixmap(px);

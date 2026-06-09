@@ -17,7 +17,8 @@ static bool writeFile(const std::string &path, const std::string &val){
     std::ofstream f(path);
     if(!f.is_open()) return false;
     f<<val;
-    return true;
+    f.flush();
+    return f.good();
 }
 
 GPIOTest::GPIOTest(QWidget* parent): QWidget(parent), d(new Impl){
@@ -58,19 +59,29 @@ GPIOTest::GPIOTest(QWidget* parent): QWidget(parent), d(new Impl){
     layout->addStretch(2);
 
     // Prepare LED buzzer if needed
-    writeFile(d->led_base + "/trigger", "none");
-    writeFile(d->led_base + "/brightness", "0");
+    const bool triggerOk = writeFile(d->led_base + "/trigger", "none");
+    const bool initOk = writeFile(d->led_base + "/brightness", "0");
 
     connect(buzzerBtn, &QPushButton::clicked, this, [=]() {
         toggleBuzzer();
     });
     updateButtonState();
+    if (!triggerOk || !initOk) {
+        statusLabel->setText(QString("BUZZER init failed (trigger:%1 brightness:%2)")
+                             .arg(triggerOk ? "ok" : "fail")
+                             .arg(initOk ? "ok" : "fail"));
+    }
 }
 
 void GPIOTest::toggleBuzzer(){
-    buzzerOn = !buzzerOn;
-    writeFile(d->led_base + "/brightness", buzzerOn ? "1" : "0");
-    updateButtonState();
+    const bool nextOn = !buzzerOn;
+    const bool ok = writeFile(d->led_base + "/brightness", nextOn ? "1" : "0");
+    if (ok) {
+        buzzerOn = nextOn;
+        updateButtonState();
+    } else {
+        if (statusLabel) statusLabel->setText("BUZZER write failed");
+    }
 }
 
 void GPIOTest::updateButtonState(){

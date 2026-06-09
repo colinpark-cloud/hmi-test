@@ -10,9 +10,7 @@ int main(int argc, char** argv){
         c.exec();
         return 0;
     }
-    MainWindow w; 
-    // avoid requesting fullscreen from compositor; use fixed size matching panel
-    w.setFixedSize(1024,600);
+    MainWindow w;
     w.show();
     return a.exec();
 }

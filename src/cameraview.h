@@ -16,11 +16,14 @@ class CameraView : public QWidget {
 public:
     explicit CameraView(QWidget* parent = nullptr);
     ~CameraView();
+    bool isRunning() const { return m_running; }
+
+public slots:
+    void startCamera();
+    void stopCamera();
 
 private slots:
     void refreshDevices();
-    void startCamera();
-    void stopCamera();
     void pollFrame();
 
 private:

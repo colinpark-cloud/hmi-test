@@ -31,9 +31,12 @@ private:
     void onBrightnessSliderChanged(int value);
     void advanceColor();
     void resetToIntro();
+public:
     bool writeBacklight(int value);
     int readBacklightMax() const;
     int readBacklightCurrent() const;
+
+private:
 
     int idx = -1;
     ColorWidget* cw = nullptr;
