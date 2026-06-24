@@ -246,9 +246,17 @@ void SerialTest::onReadReady() {
 void SerialTest::sendOnce() {
     if (fd < 0 || !portOpen) { appendTx("전송 실패: 포트가 열려있지 않음"); return; }
     if (curDir != TestDir::TX)  { appendTx("TX 모드가 아님"); return; }
+    if (hwFlow) {
+        int status = 0;
+        if (::ioctl(fd, TIOCMGET, &status) == 0 && !(status & TIOCM_CTS)) {
+            appendTx("TX 차단: CTS 신호 없음 — RTS/CTS 루프백 또는 상대 기기 연결 확인");
+            return;
+        }
+    }
     const char msg[] = "test\n";
-    ::write(fd, msg, sizeof(msg) - 1);
-    appendTx("test");
+    ssize_t n = ::write(fd, msg, sizeof(msg) - 1);
+    if (n < 0) appendTx(QString("TX 실패 (errno=%1)").arg(errno));
+    else        appendTx("test");
 }
 
 void SerialTest::toggleAutoSend() {
