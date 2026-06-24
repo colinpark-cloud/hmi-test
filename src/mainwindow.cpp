@@ -316,7 +316,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     tabs->addTab(new GPIOTest, "Buzzer");
     const int serialTabIndex = tabs->count();
-    tabs->addTab(new SerialTest, "Serial");
+    auto *serialTab = new SerialTest;
+    tabs->addTab(serialTab, "Serial");
     auto *stressTab = new PerfTest;
     ProxTest *proxTest = nullptr;
     CameraView *cameraTab = nullptr;
@@ -339,6 +340,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
         if (proxTest) {
             proxTest->setActive(currentTab == "Sensor");
+        }
+        if (serialTab) {
+            serialTab->setActive(currentTab == "Serial");
         }
         if (cameraTab && currentTab != "Camera") {
             cameraTab->stopCamera();

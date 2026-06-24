@@ -319,6 +319,24 @@ void SerialTest::openPort() {
     updateUI();
 }
 
+// ── Active tab control ────────────────────────────────────────────────────
+
+void SerialTest::setActive(bool active) {
+    if (active) {
+        // resume: restart notifier if port is open
+        if (portOpen && !notifier) {
+            notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
+            connect(notifier, &QSocketNotifier::activated, this, &SerialTest::onReadReady);
+        }
+    } else {
+        // pause: stop auto-send and suspend RX notifier
+        if (autoSending) { autoTimer->stop(); autoSending = false; updateUI(); }
+        rxFlushTimer->stop();
+        rxBuf.clear();
+        if (notifier) { delete notifier; notifier = nullptr; }
+    }
+}
+
 // ── Log helpers ───────────────────────────────────────────────────────────
 
 void SerialTest::appendTx(const QString &line) {

@@ -12,6 +12,7 @@ class SerialTest : public QWidget {
     Q_OBJECT
 public:
     SerialTest(QWidget* parent=nullptr);
+    void setActive(bool active);
 private slots:
     void openPort();
     void sendOnce();
