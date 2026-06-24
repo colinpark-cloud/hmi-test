@@ -43,6 +43,8 @@ add_executable(hmi-test
   src/calibrator.h
   src/gltest.cpp
   src/gltest.h
+  src/hdmitest.cpp
+  src/hdmitest.h
   src/smartoven.cpp
   src/smartoven.h
 )

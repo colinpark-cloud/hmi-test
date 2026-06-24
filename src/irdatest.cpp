@@ -21,17 +21,17 @@ IrdaTest::IrdaTest(QWidget* parent) : QWidget(parent) {
     title->setAlignment(Qt::AlignCenter);
     title->setStyleSheet("font-size:22px; font-weight:700; color:#17212f;");
 
-    auto *desc = new QLabel("Send and receive MCP2120 / TFDU4101 data through /dev/ttyACM0.");
+    auto *desc = new QLabel("Send and receive MCP2120 / TFDU4101 data through /dev/ttyACM1.");
     desc->setAlignment(Qt::AlignCenter);
     desc->setWordWrap(true);
     desc->setStyleSheet("color:#5f6b7a; font-size:13px;");
 
-    m_status = new QLabel("UART: /dev/ttyACM0 (stopped)");
+    m_status = new QLabel("UART: /dev/ttyACM1 (stopped)");
     m_status->setAlignment(Qt::AlignCenter);
     m_status->setStyleSheet("color:#0f1724; font-size:13px; font-weight:700;");
 
     m_sendInput = new QLineEdit;
-    m_sendInput->setPlaceholderText("Send text to /dev/ttyACM0");
+    m_sendInput->setPlaceholderText("Send text to /dev/ttyACM1");
     m_sendInput->setMinimumHeight(42);
     m_sendInput->setStyleSheet("font-size:15px; padding:6px 10px; border:1px solid #cdd6e1; border-radius:10px;");
 
@@ -103,7 +103,7 @@ void IrdaTest::appendLog(const QString& text) {
 void IrdaTest::sendTest() {
     const QString text = m_sendInput && !m_sendInput->text().isEmpty() ? m_sendInput->text() : QStringLiteral("TEST123");
     QProcess p;
-    p.start("/bin/sh", {"-lc", QString("stty -F /dev/ttyACM0 9600 raw -echo -echoe -echok -crtscts && printf '%1' > /dev/ttyACM0").arg(text)});
+    p.start("/bin/sh", {"-lc", QString("stty -F /dev/ttyACM1 9600 raw -echo -echoe -echok -crtscts && printf '%1' > /dev/ttyACM1").arg(text)});
     if (!p.waitForFinished(3000) || p.exitStatus() != QProcess::NormalExit || p.exitCode() != 0) {
         setStatus("IrDA send failed", true);
         appendLog("TX failed");
@@ -117,17 +117,17 @@ void IrdaTest::startRx() {
     stopRx();
 
     QProcess p;
-    p.start("/bin/sh", {"-lc", "stty -F /dev/ttyACM0 9600 raw -echo -echoe -echok -crtscts min 0 time 1"});
+    p.start("/bin/sh", {"-lc", "stty -F /dev/ttyACM1 9600 raw -echo -echoe -echok -crtscts min 0 time 1"});
     if (!p.waitForFinished(3000) || p.exitStatus() != QProcess::NormalExit || p.exitCode() != 0) {
         setStatus("IrDA RX setup failed", true);
         appendLog("stty setup failed");
         return;
     }
 
-    m_uartFile = new QFile("/dev/ttyACM0", this);
+    m_uartFile = new QFile("/dev/ttyACM1", this);
     if (!m_uartFile->open(QIODevice::ReadOnly | QIODevice::Unbuffered)) {
         setStatus("IrDA RX open failed", true);
-        appendLog("open /dev/ttyACM0 failed");
+        appendLog("open /dev/ttyACM1 failed");
         delete m_uartFile;
         m_uartFile = nullptr;
         return;
@@ -136,7 +136,7 @@ void IrdaTest::startRx() {
     m_rxNotifier = new QSocketNotifier(m_uartFile->handle(), QSocketNotifier::Read, this);
     connect(m_rxNotifier, &QSocketNotifier::activated, this, &IrdaTest::handleReadyRead);
 
-    setStatus("UART: /dev/ttyACM0 (receiving)", false);
+    setStatus("UART: /dev/ttyACM1 (receiving)", false);
     appendLog("RX started");
     m_startBtn->setEnabled(false);
     m_stopBtn->setEnabled(true);
@@ -155,7 +155,7 @@ void IrdaTest::stopRx() {
     }
     if (m_startBtn) m_startBtn->setEnabled(true);
     if (m_stopBtn) m_stopBtn->setEnabled(false);
-    setStatus("UART: /dev/ttyACM0 (stopped)", false);
+    setStatus("UART: /dev/ttyACM1 (stopped)", false);
 }
 
 void IrdaTest::clearLog() {

@@ -4,6 +4,8 @@
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QStandardPaths>
 #include <QFile>
 #include <QJsonDocument>
@@ -13,8 +15,27 @@
 Calibrator::Calibrator(QWidget* parent): QDialog(parent){
     setWindowTitle("Touch Calibration");
     setModal(true);
-    // fix dialog size to avoid Wayland fullscreen protocol errors
-    setFixedSize(1024,600);
+    QSize dialogSize(1024, 600);
+    QScreen *bestScreen = QGuiApplication::primaryScreen();
+    for (QScreen *screen : QGuiApplication::screens()) {
+        if (!screen) continue;
+        if (screen->name().contains("HDMI", Qt::CaseInsensitive)) {
+            bestScreen = screen;
+            break;
+        }
+        if (!bestScreen || screen->geometry().size().width() * screen->geometry().size().height() >
+                           bestScreen->geometry().size().width() * bestScreen->geometry().size().height()) {
+            bestScreen = screen;
+        }
+    }
+    if (bestScreen) {
+        const QSize screenSize = bestScreen->geometry().size();
+        if (screenSize.width() > 0 && screenSize.height() > 0) {
+            dialogSize = screenSize;
+        }
+    }
+    // Keep a normal fixed-size window to avoid Wayland fullscreen protocol errors.
+    setFixedSize(dialogSize);
     // remove window decorations and force stay-on-top so compositor treats it as normal window
     setWindowFlags(windowFlags() | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
     setAttribute(Qt::WA_ShowWithoutActivating);
