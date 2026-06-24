@@ -222,6 +222,21 @@ SerialTest::SerialTest(QWidget *parent) : QWidget(parent) {
     updateUI();
 }
 
+// ── Port close helper ─────────────────────────────────────────────────────
+
+static void safeCloseFd(int fd, bool hwFlow) {
+    if (fd < 0) return;
+    if (hwFlow) {
+        struct termios tio;
+        if (tcgetattr(fd, &tio) == 0) {
+            tio.c_cflag &= ~CRTSCTS;
+            tcsetattr(fd, TCSANOW, &tio);
+        }
+    }
+    tcflush(fd, TCIOFLUSH);
+    ::close(fd);
+}
+
 // ── Slots ─────────────────────────────────────────────────────────────────
 
 void SerialTest::onReadReady() {
@@ -274,7 +289,7 @@ void SerialTest::selectPort(Port p) {
         autoTimer->stop(); autoSending = false;
         modemTimer->stop();
         delete notifier; notifier = nullptr;
-        ::close(fd); fd = -1; portOpen = false;
+        safeCloseFd(fd, hwFlow); fd = -1; portOpen = false;
     }
     curPort = p;
     if (p != Port::COM2 && hwFlow) hwFlow = false;
@@ -335,7 +350,7 @@ void SerialTest::openPort() {
         modemLabel->setStyleSheet("font-size:12px;font-family:monospace;color:#5f6b7a;"
                                   "background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;padding:2px 8px;");
         delete notifier; notifier = nullptr;
-        ::close(fd); fd = -1; portOpen = false;
+        safeCloseFd(fd, hwFlow); fd = -1; portOpen = false;
         appendTx(QString("닫힘: %1").arg(portDevice()));
         updateUI();
         return;
