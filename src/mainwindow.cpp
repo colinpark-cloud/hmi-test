@@ -332,7 +332,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     proxTest = new ProxTest;
     tabs->addTab(proxTest, "Sensor");
     tabs->addTab(new StorageTest, "Store");
-    tabs->setCurrentIndex(serialTabIndex);
     connect(tabs, &QTabWidget::currentChanged, this, [=](int index) {
         logUi(QString("tab_changed:%1:%2").arg(index).arg(tabs->tabText(index)));
         const QString currentTab = tabs->tabText(index);
@@ -352,6 +351,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             cameraTab->stopCamera();
         }
     });
+    // Set initial tab AFTER connecting signal so setActive() fires correctly
+    tabs->setCurrentIndex(serialTabIndex);
 
     auto runTool = [=](const QString& tool) {
         QString path = QStandardPaths::findExecutable(tool);
