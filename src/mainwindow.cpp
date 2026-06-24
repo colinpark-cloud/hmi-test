@@ -17,6 +17,8 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QSlider>
 #include <QStandardPaths>
 #include <QTextStream>
@@ -47,6 +49,7 @@
 
 #include "calibrator.h"
 #include "displaytest.h"
+#include "hdmitest.h"
 #include "gpiotest.h"
 #include "perftest.h"
 #include "serialtest.h"
@@ -203,13 +206,33 @@ void MainWindow::applyModelLayout(QTabWidget* tabs) {
         width = 1024; height = 768; tabMinWidth = 74; tabMaxWidth = 82;
     }
 
+    QScreen *bestScreen = QGuiApplication::primaryScreen();
+    for (QScreen *screen : QGuiApplication::screens()) {
+        if (!screen) continue;
+        if (screen->name().contains("HDMI", Qt::CaseInsensitive)) {
+            bestScreen = screen;
+            break;
+        }
+        if (!bestScreen || screen->geometry().size().width() * screen->geometry().size().height() >
+                           bestScreen->geometry().size().width() * bestScreen->geometry().size().height()) {
+            bestScreen = screen;
+        }
+    }
+    if (bestScreen) {
+        const QSize screenSize = bestScreen->geometry().size();
+        if (screenSize.width() > 0 && screenSize.height() > 0) {
+            width = screenSize.width();
+            height = screenSize.height();
+        }
+    }
+
     if (tabs && tabs->tabBar()) {
         tabs->tabBar()->setStyleSheet(QString("QTabBar::tab{min-width:%1px; max-width:%2px; padding:3px 5px; margin-right:1px;}")
                                       .arg(tabMinWidth)
                                       .arg(tabMaxWidth));
     }
 
-    setMinimumSize(width, height);
+    setMinimumSize(0, 0);
     resize(width, height);
 }
 
@@ -292,20 +315,22 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     tabs->addTab(touchTab, "Touch");
 
     tabs->addTab(new GPIOTest, "Buzzer");
+    const int serialTabIndex = tabs->count();
     tabs->addTab(new SerialTest, "Serial");
     auto *stressTab = new PerfTest;
     ProxTest *proxTest = nullptr;
     CameraView *cameraTab = nullptr;
     tabs->addTab(stressTab, "Stress");
     tabs->addTab(new CommTest, "Comm");
+    tabs->addTab(new HdmiTest, "HDMI");
     tabs->addTab(new IrdaTest, "IrDA");
     cameraTab = new CameraView;
     tabs->addTab(cameraTab, "Camera");
     tabs->addTab(new BarcodeTest, "Barcode");
     proxTest = new ProxTest;
-    const int proxTabIndex = tabs->addTab(proxTest, "Sensor");
+    tabs->addTab(proxTest, "Sensor");
     tabs->addTab(new StorageTest, "Store");
-    tabs->setCurrentIndex(proxTabIndex);
+    tabs->setCurrentIndex(serialTabIndex);
     connect(tabs, &QTabWidget::currentChanged, this, [=](int index) {
         logUi(QString("tab_changed:%1:%2").arg(index).arg(tabs->tabText(index)));
         const QString currentTab = tabs->tabText(index);

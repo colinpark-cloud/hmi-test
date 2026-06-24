@@ -1,6 +1,7 @@
 #include "proxtest.h"
 #include "cameraview.h"
 
+#include <algorithm>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QFile>
@@ -36,7 +37,7 @@ ProxTest::ProxTest(QWidget* parent) : QWidget(parent) {
     auto *title = new QLabel("VCNL4200 Proximity");
     title->setStyleSheet("font-size:22px; font-weight:800; color:#17212f;");
 
-    auto *desc = new QLabel("Reads proximity data from VCNL4200 on i2c-6 at 0x51 and swaps demo/camera in-place.");
+    auto *desc = new QLabel("Reads proximity data from VCNL4200 on i2c-8 at 0x51 and swaps demo/camera in-place.");
     desc->setWordWrap(true);
     desc->setStyleSheet("color:#5f6b7a; font-size:14px;");
 
@@ -46,7 +47,7 @@ ProxTest::ProxTest(QWidget* parent) : QWidget(parent) {
     auto *leftCol = new QVBoxLayout;
     auto *infoColTop = new QVBoxLayout;
     infoColTop->setSpacing(6);
-    m_busLabel = new QLabel("Bus: MCP2221 @ /dev/i2c-6");
+    m_busLabel = new QLabel("Bus: MCP2221 @ /dev/i2c-8");
     m_addrLabel = new QLabel("Addr: 0x51");
     for (auto *l : {m_busLabel, m_addrLabel}) {
         l->setStyleSheet("background:#ffffff; border:1px solid #cdd6e1; border-radius:10px; padding:8px 12px; font-size:14px; font-weight:700;");
@@ -99,6 +100,16 @@ ProxTest::ProxTest(QWidget* parent) : QWidget(parent) {
     m_reinitBtn->setMinimumHeight(40);
     m_reinitBtn->setStyleSheet("font-size:15px; font-weight:700; background:#17304c; color:white; border:1px solid #2d5b89; border-radius:10px; padding:8px 12px;");
 
+    auto *calibBtn = new QPushButton("Calibrate BG");
+    calibBtn->setMaximumWidth(220);
+    calibBtn->setMinimumHeight(40);
+    calibBtn->setStyleSheet("font-size:15px; font-weight:700; background:#065f46; color:white; border:1px solid #059669; border-radius:10px; padding:8px 12px;");
+
+    m_threshLabel = new QLabel("BG=?  ON≥?  OFF≤?");
+    m_threshLabel->setMaximumWidth(220);
+    m_threshLabel->setWordWrap(true);
+    m_threshLabel->setStyleSheet("color:#374151; font-size:12px; font-family:monospace; background:#f0fdf4; border:1px solid #a7f3d0; border-radius:8px; padding:6px 8px;");
+
     m_log = new QPlainTextEdit;
     m_log->setReadOnly(true);
     m_log->hide();
@@ -110,6 +121,8 @@ ProxTest::ProxTest(QWidget* parent) : QWidget(parent) {
     leftCol->addWidget(valueBox);
     leftCol->addWidget(m_autoBrightnessBtn);
     leftCol->addWidget(m_reinitBtn);
+    leftCol->addWidget(calibBtn);
+    leftCol->addWidget(m_threshLabel);
     leftCol->addStretch(1);
 
     m_previewStack = new QStackedWidget;
@@ -143,6 +156,7 @@ ProxTest::ProxTest(QWidget* parent) : QWidget(parent) {
         setStatus(m_autoBrightness ? "Auto brightness enabled" : "Auto brightness disabled", false);
     });
     connect(m_reinitBtn, &QPushButton::clicked, this, &ProxTest::reinitializeSensor);
+    connect(calibBtn, &QPushButton::clicked, this, &ProxTest::calibrateBackground);
 
     m_brightnessMax = readBacklightMax();
     m_lastBrightness = m_brightnessMax;
@@ -156,12 +170,20 @@ ProxTest::ProxTest(QWidget* parent) : QWidget(parent) {
 
     startI2CPolling();
     initProxSensor();
+    calibrateBackground();
     executeI2CCommands();
 }
 
 bool ProxTest::runCmd(const QStringList& args, QString* out) {
     QProcess p;
-    p.start("/usr/sbin/i2cget", args);
+    QString program = "/usr/sbin/i2cget";
+    QStringList runArgs = args;
+    if (QFile::exists("/usr/bin/sudo") && QFile::exists("/usr/local/bin/hmi-i2cget")) {
+        program = "/usr/bin/sudo";
+        runArgs = QStringList() << "/usr/local/bin/hmi-i2cget";
+        runArgs.append(args);
+    }
+    p.start(program, runArgs);
     if (!p.waitForFinished(2000)) return false;
     const QString s = QString::fromLocal8Bit(p.readAllStandardOutput()).trimmed();
     if (out) *out = s;
@@ -180,7 +202,14 @@ bool ProxTest::readWord(const QString& bus, const QString& addr, const QString& 
 bool ProxTest::writeWord(const QString& bus, const QString& addr, const QString& reg, quint16 value) {
     QProcess p;
     const QStringList args = {"-y", bus, addr, reg, QString("0x%1").arg(value, 4, 16, QLatin1Char('0')).toUpper(), "w"};
-    p.start("/usr/sbin/i2cset", args);
+    QString program = "/usr/sbin/i2cset";
+    QStringList runArgs = args;
+    if (QFile::exists("/usr/bin/sudo") && QFile::exists("/usr/local/bin/hmi-i2cset")) {
+        program = "/usr/bin/sudo";
+        runArgs = QStringList() << "/usr/local/bin/hmi-i2cset";
+        runArgs.append(args);
+    }
+    p.start(program, runArgs);
     if (!p.waitForFinished(2000)) return false;
     return p.exitStatus() == QProcess::NormalExit && p.exitCode() == 0;
 }
@@ -206,16 +235,26 @@ bool ProxTest::initProxSensor() {
 
     quint16 reg03 = 0;
     quint16 reg04 = 0;
-    readWord(m_bus, m_addr, "0x03", reg03);
-    readWord(m_bus, m_addr, "0x04", reg04);
+    const bool okReg03 = readWord(m_bus, m_addr, "0x03", reg03);
+    const bool okReg04 = readWord(m_bus, m_addr, "0x04", reg04);
+
+    ok = ok && okReg03 && okReg04 && reg03 == 0x08ca && reg04 == 0x0760;
 
     if (ok) {
         m_initialized = true;
-        appendLog(QString("prox init ok reg03=0x%1 reg04=0x%2")
+        setStatus("Sensor OK", false);
+        appendLog(QString("prox init ok bus=%1 reg03=0x%2 reg04=0x%3")
+                  .arg(m_bus)
                   .arg(reg03, 4, 16, QLatin1Char('0')).toUpper()
                   .arg(reg04, 4, 16, QLatin1Char('0')).toUpper());
     } else {
-        appendLog("prox init failed");
+        m_initialized = false;
+        setStatus(QString("Sensor init failed (bus %1)").arg(m_bus), true);
+        appendLog(QString("prox init failed bus=%1 ok=%2 reg03=0x%3 reg04=0x%4")
+                  .arg(m_bus)
+                  .arg(ok ? "true" : "false")
+                  .arg(reg03, 4, 16, QLatin1Char('0')).toUpper()
+                  .arg(reg04, 4, 16, QLatin1Char('0')).toUpper());
     }
     return ok;
 }
@@ -289,8 +328,28 @@ void ProxTest::appendLog(const QString& text) {
     m_log->appendPlainText(QDateTime::currentDateTime().toString(Qt::ISODate) + " " + text);
 }
 
+void ProxTest::calibrateBackground() {
+    // Sample PS, sort, use median to ignore transient spikes
+    QVector<quint16> samples;
+    for (int i = 0; i < 7; ++i) {
+        quint16 ps = 0;
+        if (readWord(m_bus, m_addr, "0x08", ps)) samples.append(ps);
+        QThread::msleep(120);
+    }
+    if (samples.isEmpty()) return;
+    std::sort(samples.begin(), samples.end());
+    m_psBackground = samples[samples.size() / 2];   // median
+    m_psThreshOn  = m_psBackground + 100;
+    m_psThreshOff = m_psBackground + 50;
+    appendLog(QString("calibrate: background=%1  threshOn=%2  threshOff=%3")
+              .arg(m_psBackground).arg(m_psThreshOn).arg(m_psThreshOff));
+    if (m_threshLabel)
+        m_threshLabel->setText(QString("BG=%1  ON≥%2  OFF≤%3")
+                               .arg(m_psBackground).arg(m_psThreshOn).arg(m_psThreshOff));
+}
+
 void ProxTest::updatePresenceUi(quint16 ps) {
-    const bool nextPresent = m_personPresent ? (ps > 80) : (ps >= 120);
+    const bool nextPresent = m_personPresent ? (ps > m_psThreshOff) : (ps >= m_psThreshOn);
     if (nextPresent == m_personPresent) return;
     m_personPresent = nextPresent;
     if (!m_previewStack || !m_cameraView || !m_demoView) return;
@@ -363,36 +422,32 @@ void ProxTest::executeI2CCommands() {
     const bool okPs = readWord(m_bus, m_addr, "0x08", ps);
     const bool okAls = readWord(m_bus, m_addr, "0x09", als);
 
-    if (okReg03) appendLog(QString("i2cget -y 6 0x51 0x03 w => 0x%1").arg(reg03, 4, 16, QLatin1Char('0')).toUpper());
-    if (okReg04) appendLog(QString("i2cget -y 6 0x51 0x04 w => 0x%1").arg(reg04, 4, 16, QLatin1Char('0')).toUpper());
-    if (okPs) appendLog(QString("i2cget -y 6 0x51 0x08 w => 0x%1").arg(ps, 4, 16, QLatin1Char('0')).toUpper());
-    if (okAls) appendLog(QString("i2cget -y 6 0x51 0x09 w => 0x%1").arg(als, 4, 16, QLatin1Char('0')).toUpper());
+    if (okReg03) appendLog(QString("i2cget -y %1 0x51 0x03 w => 0x%2").arg(m_bus).arg(reg03, 4, 16, QLatin1Char('0')).toUpper());
+    if (okReg04) appendLog(QString("i2cget -y %1 0x51 0x04 w => 0x%2").arg(m_bus).arg(reg04, 4, 16, QLatin1Char('0')).toUpper());
+    if (okPs) appendLog(QString("i2cget -y %1 0x51 0x08 w => 0x%2").arg(m_bus).arg(ps, 4, 16, QLatin1Char('0')).toUpper());
+    if (okAls) appendLog(QString("i2cget -y %1 0x51 0x09 w => 0x%2").arg(m_bus).arg(als, 4, 16, QLatin1Char('0')).toUpper());
 
-    if (m_value) m_value->setText(okPs ? QString("0x%1").arg(ps, 4, 16, QLatin1Char('0')).toUpper() : "ERR");
+    if (m_value) m_value->setText(okPs ? QString("0x%1  (%2)").arg(ps, 4, 16, QLatin1Char('0')).toUpper().arg(ps) : "ERR");
     if (m_lightValue) m_lightValue->setText(okAls ? QString("0x%1").arg(als, 4, 16, QLatin1Char('0')).toUpper() : "ERR");
     if (m_flagValue) m_flagValue->setText(okReg03 ? QString("0x%1").arg(reg03, 4, 16, QLatin1Char('0')).toUpper() : "ERR");
     if (okAls) updateAutoBrightness(als);
     if (okPs) updatePresenceUi(ps);
-    setStatus((okPs || okAls) ? "Sensor OK" : "Sensor read failed",
-              !(okPs || okAls));
+
+    if (okPs || okAls) {
+        m_consecutiveReadFails = 0;
+        setStatus("Sensor OK", false);
+    } else {
+        ++m_consecutiveReadFails;
+        if (m_consecutiveReadFails >= 3) {
+            setStatus("Sensor read failed", true);
+        }
+    }
 }
 
 void ProxTest::startI2CPolling() {
     m_pollTimer = new QTimer(this);
     connect(m_pollTimer, &QTimer::timeout, this, [this]() {
-        quint16 ps = 0;
-        quint16 als = 0;
-        const bool okPs = readWord(m_bus, m_addr, "0x08", ps);
-        const bool okAls = readWord(m_bus, m_addr, "0x09", als) || readWord(m_bus, m_addr, "0x0A", als);
-        if (m_value) m_value->setText(okPs ? QString("0x%1").arg(ps, 4, 16, QLatin1Char('0')).toUpper() : "ERR");
-        if (m_lightValue) m_lightValue->setText(okAls ? QString("0x%1").arg(als, 4, 16, QLatin1Char('0')).toUpper() : "ERR");
-        if (okAls) updateAutoBrightness(als);
-        if (okPs) updatePresenceUi(ps);
-        if (okPs || okAls) {
-            setStatus("Sensor OK", false);
-        } else {
-            setStatus("Polling failed for I2C", true);
-        }
+        executeI2CCommands();
     });
     m_pollTimer->start(1000);
 }

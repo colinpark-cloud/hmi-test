@@ -30,6 +30,7 @@ private:
     bool readWord(const QString& bus, const QString& addr, const QString& reg, quint16& value);
     bool writeWord(const QString& bus, const QString& addr, const QString& reg, quint16 value);
     bool initProxSensor();
+    void calibrateBackground();
     int readBacklightMax() const;
     bool writeBacklight(int value);
     int readBacklightCurrent() const;
@@ -51,7 +52,7 @@ private:
     QStackedWidget* m_previewStack = nullptr;
     QQuickWidget* m_demoView = nullptr;
     CameraView* m_cameraView = nullptr;
-    QString m_bus = "6";
+    QString m_bus = "8";
     QString m_addr = "0x51";
     quint16 m_lastPs = 0;
     quint16 m_lastAls = 0;
@@ -64,5 +65,10 @@ private:
     bool m_initialized = false;
     bool m_personPresent = false;
     bool m_active = true;
+    int m_consecutiveReadFails = 0;
+    quint16 m_psBackground = 0;
+    quint16 m_psThreshOn  = 500;   // updated by calibrateBackground()
+    quint16 m_psThreshOff = 300;
     QTimer* m_pollTimer = nullptr;
+    QLabel* m_threshLabel = nullptr;
 };
