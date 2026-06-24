@@ -269,6 +269,7 @@ void SerialTest::selectPort(Port p) {
         ::close(fd); fd = -1; portOpen = false;
     }
     curPort = p;
+    if (p != Port::COM2 && hwFlow) hwFlow = false;
     if (p == Port::COM3) curMode = Mode::RS232;
     updateUI();
     appendTx(QString("포트 선택: %1").arg(portDevice()));
@@ -430,9 +431,10 @@ void SerialTest::updateUI() {
     autoBtn->setText(autoSending ? "Auto Send  ON  ■" : "Auto Send  OFF");
     autoBtn->setStyleSheet(autoSending ? BTN_ON : (isTx ? BTN_OFF : BTN_DIS));
 
-    hwFlowBtn->setEnabled(!portOpen);
+    bool hwFlowAvail = (curPort == Port::COM2) && !portOpen;
+    hwFlowBtn->setEnabled(hwFlowAvail);
     hwFlowBtn->setText(hwFlow ? "HW Flow\nRTS/CTS  ON" : "HW Flow\nRTS/CTS  OFF");
-    hwFlowBtn->setStyleSheet(portOpen ? BTN_DIS : (hwFlow ? BTN_ON : BTN_OFF));
+    hwFlowBtn->setStyleSheet(!hwFlowAvail ? BTN_DIS : (hwFlow ? BTN_ON : BTN_OFF));
 
     if (curPort == Port::None) {
         statusLabel->setText("포트를 선택하세요");
