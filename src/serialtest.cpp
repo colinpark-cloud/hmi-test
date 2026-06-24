@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstring>
+#include <sys/ioctl.h>
 
 static const QString BTN_ON  = "font-size:14px;font-weight:700;background:#1a5c38;color:white;border:1px solid #2d8a57;border-radius:10px;padding:8px 12px;";
 static const QString BTN_OFF = "font-size:14px;font-weight:600;background:#e8f1fb;color:#0f1724;border:1px solid #b8c7d9;border-radius:10px;padding:8px 12px;";
@@ -80,13 +81,17 @@ SerialTest::SerialTest(QWidget *parent) : QWidget(parent) {
     dirLayout->addWidget(txDirBtn, 1);
     dirLayout->addWidget(rxDirBtn, 1);
 
-    // ── Baud + Open row ───────────────────────────────────────────────────
+    // ── Baud + HW Flow + Open row ─────────────────────────────────────────
     baudBox = new QComboBox;
     baudBox->setStyleSheet("font-size:14px;padding:6px 10px;border:1px solid #b8c7d9;border-radius:8px;background:#fff;");
     baudBox->setMinimumHeight(40);
     for (const char *b : {"1200","2400","4800","9600","19200","38400","57600","115200"})
         baudBox->addItem(b);
     baudBox->setCurrentText("9600");
+
+    hwFlowBtn = new QPushButton("HW Flow\nRTS/CTS  OFF");
+    hwFlowBtn->setMinimumHeight(40);
+    hwFlowBtn->setStyleSheet(BTN_OFF);
 
     openBtn = new QPushButton("Open");
     openBtn->setMinimumHeight(40);
@@ -95,8 +100,15 @@ SerialTest::SerialTest(QWidget *parent) : QWidget(parent) {
     auto *baudLayout = new QHBoxLayout(baudRow);
     baudLayout->setContentsMargins(0,0,0,0); baudLayout->setSpacing(8);
     baudLayout->addWidget(new QLabel("Baud:"));
-    baudLayout->addWidget(baudBox, 1);
-    baudLayout->addWidget(openBtn, 1);
+    baudLayout->addWidget(baudBox, 2);
+    baudLayout->addWidget(hwFlowBtn, 2);
+    baudLayout->addWidget(openBtn, 2);
+
+    // ── Modem line status ─────────────────────────────────────────────────
+    modemLabel = new QLabel("RTS: --  CTS: --");
+    modemLabel->setAlignment(Qt::AlignCenter);
+    modemLabel->setStyleSheet("font-size:12px;font-family:monospace;color:#5f6b7a;"
+                              "background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;padding:2px 8px;");
 
     statusLabel = new QLabel("포트를 선택하세요");
     statusLabel->setAlignment(Qt::AlignCenter);
@@ -142,12 +154,42 @@ SerialTest::SerialTest(QWidget *parent) : QWidget(parent) {
     layout->addWidget(modeRow);
     layout->addWidget(dirRow);
     layout->addWidget(baudRow);
+    layout->addWidget(modemLabel);
     layout->addWidget(statusLabel);
     layout->addWidget(txCtrlRow);
     layout->addWidget(txLabel);
     layout->addWidget(txLog);
     layout->addWidget(rxLabel);
     layout->addWidget(rxLog, 1);
+
+    // ── HW Flow toggle ────────────────────────────────────────────────────
+    connect(hwFlowBtn, &QPushButton::clicked, this, [this]() {
+        if (portOpen) { appendTx("포트를 닫은 후 변경하세요"); return; }
+        hwFlow = !hwFlow;
+        hwFlowBtn->setText(hwFlow ? "HW Flow\nRTS/CTS  ON" : "HW Flow\nRTS/CTS  OFF");
+        hwFlowBtn->setStyleSheet(hwFlow ? BTN_ON : BTN_OFF);
+        appendTx(hwFlow ? "HW Flow Control ON  (CRTSCTS)" : "HW Flow Control OFF");
+    });
+
+    // ── Modem status timer (poll TIOCMGET every 200ms) ────────────────────
+    modemTimer = new QTimer(this);
+    modemTimer->setInterval(200);
+    connect(modemTimer, &QTimer::timeout, this, [this]() {
+        if (fd < 0) return;
+        int status = 0;
+        if (::ioctl(fd, TIOCMGET, &status) == 0) {
+            bool rts = (status & TIOCM_RTS);
+            bool cts = (status & TIOCM_CTS);
+            modemLabel->setText(QString("RTS: %1  |  CTS: %2  %3")
+                .arg(rts ? "HI" : "LO")
+                .arg(cts ? "HI" : "LO")
+                .arg(hwFlow && !cts ? "  ⚠ TX 차단됨" : ""));
+            modemLabel->setStyleSheet(
+                (hwFlow && !cts)
+                    ? "font-size:12px;font-family:monospace;color:#b91c1c;background:#fee2e2;border:1px solid #fca5a5;border-radius:6px;padding:2px 8px;"
+                    : "font-size:12px;font-family:monospace;color:#15803d;background:#dcfce7;border:1px solid #86efac;border-radius:6px;padding:2px 8px;");
+        }
+    });
 
     // ── Auto-send timer ───────────────────────────────────────────────────
     autoTimer = new QTimer(this);
@@ -222,6 +264,7 @@ void SerialTest::toggleAutoSend() {
 void SerialTest::selectPort(Port p) {
     if (portOpen) {
         autoTimer->stop(); autoSending = false;
+        modemTimer->stop();
         delete notifier; notifier = nullptr;
         ::close(fd); fd = -1; portOpen = false;
     }
@@ -278,6 +321,10 @@ void SerialTest::openPort() {
     if (curPort == Port::None) { appendTx("포트를 먼저 선택하세요"); return; }
     if (portOpen) {
         autoTimer->stop(); autoSending = false;
+        modemTimer->stop();
+        modemLabel->setText("RTS: --  CTS: --");
+        modemLabel->setStyleSheet("font-size:12px;font-family:monospace;color:#5f6b7a;"
+                                  "background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;padding:2px 8px;");
         delete notifier; notifier = nullptr;
         ::close(fd); fd = -1; portOpen = false;
         appendTx(QString("닫힘: %1").arg(portDevice()));
@@ -303,18 +350,21 @@ void SerialTest::openPort() {
     struct termios tio; memset(&tio, 0, sizeof(tio));
     cfsetispeed(&tio, speed); cfsetospeed(&tio, speed);
     tio.c_cflag = CS8 | CLOCAL | CREAD;
+    if (hwFlow) tio.c_cflag |= CRTSCTS;
     tio.c_iflag = IGNPAR;
     tcflush(fd, TCIFLUSH);
     tcsetattr(fd, TCSANOW, &tio);
     portOpen = true;
+    modemTimer->start();
 
     // RX notifier always active (both modes can receive)
     notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
     connect(notifier, &QSocketNotifier::activated, this, &SerialTest::onReadReady);
 
     QString modeStr = curPort == Port::COM3 ? "RS485(MCP2221A)" : curMode == Mode::RS232 ? "RS232" : "RS422/485";
-    appendTx(QString("열림: %1  [%2]  [%3]")
-        .arg(portDevice()).arg(modeStr)
+    QString flowStr = hwFlow ? "CRTSCTS" : "NoFlow";
+    appendTx(QString("열림: %1  [%2]  [%3]  [%4]")
+        .arg(portDevice()).arg(modeStr).arg(flowStr)
         .arg(curDir == TestDir::TX ? "TX모드" : "RX모드"));
     updateUI();
 }
@@ -323,16 +373,16 @@ void SerialTest::openPort() {
 
 void SerialTest::setActive(bool active) {
     if (active) {
-        // resume: restart notifier if port is open
         if (portOpen && !notifier) {
             notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
             connect(notifier, &QSocketNotifier::activated, this, &SerialTest::onReadReady);
         }
+        if (portOpen) modemTimer->start();
     } else {
-        // pause: stop auto-send and suspend RX notifier
         if (autoSending) { autoTimer->stop(); autoSending = false; updateUI(); }
         rxFlushTimer->stop();
         rxBuf.clear();
+        modemTimer->stop();
         if (notifier) { delete notifier; notifier = nullptr; }
     }
 }
@@ -379,6 +429,10 @@ void SerialTest::updateUI() {
     sendBtn->setStyleSheet(isTx ? BTN_ACT : BTN_DIS);
     autoBtn->setText(autoSending ? "Auto Send  ON  ■" : "Auto Send  OFF");
     autoBtn->setStyleSheet(autoSending ? BTN_ON : (isTx ? BTN_OFF : BTN_DIS));
+
+    hwFlowBtn->setEnabled(!portOpen);
+    hwFlowBtn->setText(hwFlow ? "HW Flow\nRTS/CTS  ON" : "HW Flow\nRTS/CTS  OFF");
+    hwFlowBtn->setStyleSheet(portOpen ? BTN_DIS : (hwFlow ? BTN_ON : BTN_OFF));
 
     if (curPort == Port::None) {
         statusLabel->setText("포트를 선택하세요");
