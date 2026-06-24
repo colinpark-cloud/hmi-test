@@ -345,6 +345,15 @@ void CommTest::updateClock() {
     m_clockLabel->setText(text);
 }
 
+void CommTest::setActive(bool active) {
+    if (active) {
+        if (m_clockTimer) m_clockTimer->start();
+    } else {
+        if (m_clockTimer) m_clockTimer->stop();
+        if (m_timer && m_running) m_timer->stop();
+    }
+}
+
 void CommTest::toggleRun() {
     m_running = !m_running;
     setRunButton();

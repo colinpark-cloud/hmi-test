@@ -322,7 +322,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     ProxTest *proxTest = nullptr;
     CameraView *cameraTab = nullptr;
     tabs->addTab(stressTab, "Stress");
-    tabs->addTab(new CommTest, "Comm");
+    auto *commTab = new CommTest;
+    tabs->addTab(commTab, "Comm");
     tabs->addTab(new HdmiTest, "HDMI");
     tabs->addTab(new IrdaTest, "IrDA");
     cameraTab = new CameraView;
@@ -343,6 +344,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
         if (serialTab) {
             serialTab->setActive(currentTab == "Serial");
+        }
+        if (commTab) {
+            commTab->setActive(currentTab == "Comm");
         }
         if (cameraTab && currentTab != "Camera") {
             cameraTab->stopCamera();

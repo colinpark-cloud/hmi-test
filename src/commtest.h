@@ -10,6 +10,7 @@ class CommTest : public QWidget {
     Q_OBJECT
 public:
     explicit CommTest(QWidget* parent = nullptr);
+    void setActive(bool active);
 
 private slots:
     void toggleRun();
