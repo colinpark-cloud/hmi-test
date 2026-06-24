@@ -379,6 +379,12 @@ void SerialTest::openPort() {
     tcflush(fd, TCIFLUSH);
     tcsetattr(fd, TCSANOW, &tio);
     portOpen = true;
+    if (hwFlow) {
+        int mflags = 0;
+        ::ioctl(fd, TIOCMGET, &mflags);
+        mflags |= TIOCM_RTS;
+        ::ioctl(fd, TIOCMBIS, &mflags);
+    }
     modemTimer->start();
 
     // RX notifier always active (both modes can receive)
