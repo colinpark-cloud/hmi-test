@@ -38,9 +38,11 @@ private:
     Mode    curMode = Mode::RS232;
     TestDir curDir  = TestDir::TX;
 
-    QSocketNotifier *notifier  = nullptr;
-    QTimer          *autoTimer = nullptr;
-    QComboBox       *baudBox   = nullptr;
+    QSocketNotifier *notifier   = nullptr;
+    QTimer          *autoTimer  = nullptr;
+    QTimer          *rxFlushTimer = nullptr;
+    QComboBox       *baudBox    = nullptr;
+    QByteArray       rxBuf;
 
     QPushButton *com1Btn  = nullptr;
     QPushButton *com2Btn  = nullptr;

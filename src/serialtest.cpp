@@ -154,6 +154,17 @@ SerialTest::SerialTest(QWidget *parent) : QWidget(parent) {
     autoTimer->setInterval(1000);
     connect(autoTimer, &QTimer::timeout, this, &SerialTest::sendOnce);
 
+    rxFlushTimer = new QTimer(this);
+    rxFlushTimer->setSingleShot(true);
+    rxFlushTimer->setInterval(50);
+    connect(rxFlushTimer, &QTimer::timeout, this, [this]() {
+        if (!rxBuf.isEmpty()) {
+            QString s = QString::fromLatin1(rxBuf).trimmed();
+            rxBuf.clear();
+            if (!s.isEmpty()) appendRx(s);
+        }
+    });
+
     // ── Connections ───────────────────────────────────────────────────────
     connect(com1Btn,  &QPushButton::clicked, this, [=]() { selectPort(Port::COM1); });
     connect(com2Btn,  &QPushButton::clicked, this, [=]() { selectPort(Port::COM2); });
@@ -174,11 +185,20 @@ SerialTest::SerialTest(QWidget *parent) : QWidget(parent) {
 void SerialTest::onReadReady() {
     char buf[256];
     ssize_t n = ::read(fd, buf, sizeof(buf) - 1);
-    if (n > 0) {
-        QString rx = QString::fromLatin1(buf, n).trimmed();
-        if (!rx.isEmpty())
-            appendRx(rx);
+    if (n <= 0) return;
+    rxBuf.append(buf, static_cast<int>(n));
+
+    // flush complete lines immediately
+    while (true) {
+        int nl = rxBuf.indexOf('\n');
+        if (nl < 0) break;
+        QString s = QString::fromLatin1(rxBuf.left(nl)).trimmed();
+        rxBuf.remove(0, nl + 1);
+        if (!s.isEmpty()) appendRx(s);
     }
+    // flush remainder after 50ms silence (for data without newline)
+    if (!rxBuf.isEmpty())
+        rxFlushTimer->start();
 }
 
 void SerialTest::sendOnce() {
@@ -264,6 +284,8 @@ void SerialTest::openPort() {
         updateUI();
         return;
     }
+    rxBuf.clear();
+    rxFlushTimer->stop();
     applyGpio();
     fd = ::open(portDevice().toStdString().c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (fd < 0) {
