@@ -21,6 +21,8 @@ add_executable(hmi-test
   src/serialtest.h
   src/storagetest.cpp
   src/storagetest.h
+  src/mramtest.cpp
+  src/mramtest.h
   src/commtest.cpp
   src/commtest.h
   src/cameraview.cpp

@@ -4,26 +4,16 @@
 #include <QScreen>
 #include <QWindow>
 
-static QScreen *targetScreen()
-{
-    QScreen *fallback = QGuiApplication::primaryScreen();
-    for (QScreen *screen : QGuiApplication::screens()) {
-        if (!screen) {
-            continue;
-        }
-        if (screen->name().contains("HDMI", Qt::CaseInsensitive)) {
-            return screen;
-        }
-        if (!fallback || screen->geometry().size().width() * screen->geometry().size().height() >
-                         fallback->geometry().size().width() * fallback->geometry().size().height()) {
-            fallback = screen;
-        }
-    }
-    return fallback;
-}
-
 int main(int argc, char** argv){
     QApplication a(argc,argv);
+
+    // Override xdg_toplevel app_id via desktopFileName (takes priority over applicationName)
+    QByteArray appId = qgetenv("APP_ID");
+    if (!appId.isEmpty()) {
+        QGuiApplication::setDesktopFileName(QString::fromLocal8Bit(appId));
+        QCoreApplication::setApplicationName(QString::fromLocal8Bit(appId));
+    }
+
     bool calibMode=false;
     for(int i=1;i<argc;i++) if(QString(argv[i])=="--calibrate") calibMode=true;
     if(calibMode){
@@ -31,14 +21,8 @@ int main(int argc, char** argv){
         c.exec();
         return 0;
     }
+
     MainWindow w;
-    if (QScreen *screen = targetScreen()) {
-        w.winId();
-        if (w.windowHandle()) {
-            w.windowHandle()->setScreen(screen);
-        }
-        w.setGeometry(screen->geometry());
-    }
-    w.show();
+    w.showFullScreen();
     return a.exec();
 }

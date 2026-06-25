@@ -26,3 +26,4 @@ Yocto integration
 Notes
 - Device nodes are selectable at runtime. The UI defaults are common but may need adjustment per board (e.g., /dev/ttymxc2)
 - Perf test CPU thread stop is simplified; for production implement proper thread control and monitoring.
+- The app now sizes the main window and touch calibrator to the detected panel geometry, so EDID changes like 1920x1080 are handled automatically.

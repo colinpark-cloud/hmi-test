@@ -15,6 +15,7 @@ private slots:
     void testSd();
     void testUsb();
     void testAuto();
+    void testMram();
 
 private:
     enum class StorageKind { Emmc, Sd, Usb };
@@ -22,17 +23,20 @@ private:
     void appendLog(const QString& line);
     QString findStorageRoot(StorageKind kind) const;
     bool runStorageTest(StorageKind kind, const QString& label);
+    bool runMramTest();
     void setResult(const QString& key, const QString& value, const QString& style);
     QString kindName(StorageKind kind) const;
 
-    QPushButton* emmcBtn = nullptr;
-    QPushButton* sdBtn = nullptr;
-    QPushButton* usbBtn = nullptr;
-    QPushButton* autoBtn = nullptr;
-    QLabel* emmcResult = nullptr;
-    QLabel* sdResult = nullptr;
-    QLabel* usbResult = nullptr;
-    QLabel* autoResult = nullptr;
-    QLabel* status = nullptr;
+    QPushButton* emmcBtn  = nullptr;
+    QPushButton* sdBtn    = nullptr;
+    QPushButton* usbBtn   = nullptr;
+    QPushButton* mramBtn  = nullptr;
+    QPushButton* autoBtn  = nullptr;
+    QLabel* emmcResult  = nullptr;
+    QLabel* sdResult    = nullptr;
+    QLabel* usbResult   = nullptr;
+    QLabel* mramResult  = nullptr;
+    QLabel* autoResult  = nullptr;
+    QLabel* status      = nullptr;
     QPlainTextEdit* log = nullptr;
 };
