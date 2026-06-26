@@ -329,23 +329,12 @@ void ProxTest::appendLog(const QString& text) {
 }
 
 void ProxTest::calibrateBackground() {
-    // Sample PS, sort, use median to ignore transient spikes
-    QVector<quint16> samples;
-    for (int i = 0; i < 7; ++i) {
-        quint16 ps = 0;
-        if (readWord(m_bus, m_addr, "0x08", ps)) samples.append(ps);
-        QThread::msleep(120);
-    }
-    if (samples.isEmpty()) return;
-    std::sort(samples.begin(), samples.end());
-    m_psBackground = samples[samples.size() / 2];   // median
-    m_psThreshOn  = m_psBackground + 100;
-    m_psThreshOff = m_psBackground + 50;
-    appendLog(QString("calibrate: background=%1  threshOn=%2  threshOff=%3")
-              .arg(m_psBackground).arg(m_psThreshOn).arg(m_psThreshOff));
+    /* Fixed absolute thresholds — no background sampling needed */
+    m_psThreshOn  = 150;
+    m_psThreshOff = 140;
+    appendLog(QString("threshold: ON≥%1  OFF≤%2 (fixed)").arg(m_psThreshOn).arg(m_psThreshOff));
     if (m_threshLabel)
-        m_threshLabel->setText(QString("BG=%1  ON≥%2  OFF≤%3")
-                               .arg(m_psBackground).arg(m_psThreshOn).arg(m_psThreshOff));
+        m_threshLabel->setText(QString("ON≥%1  OFF≤%2").arg(m_psThreshOn).arg(m_psThreshOff));
 }
 
 void ProxTest::updatePresenceUi(quint16 ps) {
